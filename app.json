@@ -1,20 +1,20 @@
 {
   "expo": {
-    "name": "Gifted Minds",
-    "slug": "gifted-minds",
-    "version": "1.0.8",
+    "name": "Artistic Minds",
+    "slug": "artistic-minds",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "giftedminds",
+    "scheme": "artisticminds",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.shiel.giftedminds",
+      "bundleIdentifier": "com.shiel.artisticminds",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "9"
+      "buildNumber": "1"
     },
     "android": {
       "adaptiveIcon": {
@@ -22,7 +22,7 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.shiel.giftedminds"
+      "package": "com.shiel.artisticminds"
     },
     "web": {
       "bundler": "metro",
@@ -45,10 +45,8 @@
       "typedRoutes": true
     },
     "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "e390c18b-f010-4167-bf1a-bd550625012f"
-      }
-    }
+      "router": {}
+    },
+    "owner": "shiel"
   }
 }
