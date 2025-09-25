@@ -1,0 +1,177 @@
+name: 🏷️ Issue Triage - Daily Label Management
+
+on:
+  # Scheduled run - daily at 2 AM PST
+  schedule:
+    - cron: '0 10 * * *'  # 2 AM PST = 10:00 UTC
+
+  # Manual trigger with configurable options
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run mode - do not apply actual labels'
+        required: false
+        default: false
+        type: boolean
+      verbose:
+        description: 'Enable verbose logging'
+        required: false
+        default: true
+        type: boolean
+      max_issues:
+        description: 'Maximum issues to process (1-100)'
+        required: false
+        default: '50'
+        type: string
+
+  # Allow CLI triggering
+  repository_dispatch:
+    types: [daily-issue-triage]
+
+  # Trigger when new issues are created without labels
+  issues:
+    types: [opened]
+
+  # Explicitly disable push triggers
+  push:
+    branches-ignore:
+      - '**'
+
+env:
+  GITHUB_TOKEN: ${{ github.token }}
+
+jobs:
+  triage-issues:
+    name: Label Unlabeled Issues
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch' || github.event_name == 'issues'
+    permissions:
+      contents: read
+      issues: write
+      repository-projects: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set parameters
+        id: params
+        run: |
+          DRY_RUN="${{ inputs.dry_run || 'false' }}"
+          VERBOSE="${{ inputs.verbose || 'true' }}"
+          MAX_ISSUES="${{ inputs.max_issues || '50' }}"
+
+          echo "dry_run=$DRY_RUN" >> $GITHUB_OUTPUT
+          echo "verbose=$VERBOSE" >> $GITHUB_OUTPUT
+          echo "max_issues=$MAX_ISSUES" >> $GITHUB_OUTPUT
+
+          echo "🏷️ Issue Triage Parameters:"
+          echo "  Dry run mode: $DRY_RUN"
+          echo "  Verbose logging: $VERBOSE"
+          echo "  Max issues: $MAX_ISSUES"
+
+      - name: Create logs directory
+        run: mkdir -p logs
+
+      - name: Run issue triage
+        id: triage
+        run: |
+          echo "🏷️ Starting issue triage..."
+
+          # Build command arguments
+          TRIAGE_ARGS=""
+
+          if [ "${{ steps.params.outputs.dry_run }}" = "true" ]; then
+            TRIAGE_ARGS="$TRIAGE_ARGS --dry-run"
+          fi
+
+          if [ "${{ steps.params.outputs.verbose }}" = "true" ]; then
+            TRIAGE_ARGS="$TRIAGE_ARGS --verbose"
+          fi
+
+          # Run the triage script
+          node scripts/workflows/issue-triage/triage-issues.js $TRIAGE_ARGS 2>&1 | tee triage_output.txt
+
+          # Extract results from the report file
+          if [ -f "issue-triage-report.json" ]; then
+            TOTAL_ISSUES=$(node -e "const report = JSON.parse(require('fs').readFileSync('issue-triage-report.json', 'utf8')); console.log(report.summary.totalIssuesFound || 0);")
+            ISSUES_LABELED=$(node -e "const report = JSON.parse(require('fs').readFileSync('issue-triage-report.json', 'utf8')); console.log(report.summary.issuesLabeled || 0);")
+            ISSUES_SKIPPED=$(node -e "const report = JSON.parse(require('fs').readFileSync('issue-triage-report.json', 'utf8')); console.log(report.summary.issuesSkipped || 0);")
+            EXECUTION_TIME=$(node -e "const report = JSON.parse(require('fs').readFileSync('issue-triage-report.json', 'utf8')); console.log(Math.round((report.summary.executionTime || 0) / 1000));")
+
+            echo "total_issues=$TOTAL_ISSUES" >> $GITHUB_OUTPUT
+            echo "issues_labeled=$ISSUES_LABELED" >> $GITHUB_OUTPUT
+            echo "issues_skipped=$ISSUES_SKIPPED" >> $GITHUB_OUTPUT
+            echo "execution_time=$EXECUTION_TIME" >> $GITHUB_OUTPUT
+
+            echo "📊 Triage Results:"
+            echo "  Unlabeled issues found: $TOTAL_ISSUES"
+            echo "  Issues labeled: $ISSUES_LABELED"
+            echo "  Issues skipped: $ISSUES_SKIPPED"
+            echo "  Execution time: ${EXECUTION_TIME}s"
+          else
+            echo "total_issues=0" >> $GITHUB_OUTPUT
+            echo "issues_labeled=0" >> $GITHUB_OUTPUT
+            echo "issues_skipped=0" >> $GITHUB_OUTPUT
+            echo "execution_time=0" >> $GITHUB_OUTPUT
+            echo "⚠️ No triage report generated"
+          fi
+
+      - name: Upload triage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-triage-report
+          path: |
+            issue-triage-report.json
+            logs/issue-triage.log
+            triage_output.txt
+          retention-days: 30
+
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## Issue Triage Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Schedule:** Every day at 2 AM PST" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 🏷️ Labeling Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Unlabeled issues found:** ${{ steps.triage.outputs.total_issues }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Issues successfully labeled:** ${{ steps.triage.outputs.issues_labeled }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Issues skipped:** ${{ steps.triage.outputs.issues_skipped }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Execution time:** ${{ steps.triage.outputs.execution_time }}s" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dry run mode:** ${{ steps.params.outputs.dry_run }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Add status indicator
+          if [ "${{ steps.triage.outputs.total_issues }}" -eq 0 ]; then
+            echo "✅ **Status:** All issues are properly labeled!" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ steps.triage.outputs.issues_labeled }}" -gt 0 ]; then
+            echo "🏷️ **Status:** Successfully labeled ${{ steps.triage.outputs.issues_labeled }} issues" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Status:** Found issues but none were labeled" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Label System" >> $GITHUB_STEP_SUMMARY
+          echo "This workflow ensures all open issues have proper labels using our consolidated label system:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Source Labels**: bug-report, feature-request, user-feedback, test-coverage" >> $GITHUB_STEP_SUMMARY
+          echo "- **Priority Labels**: critical, high-priority, medium-priority, low-priority" >> $GITHUB_STEP_SUMMARY
+          echo "- **Component Labels**: puzzle-generation, power-surge-system, ui-ux-feedback, etc." >> $GITHUB_STEP_SUMMARY
+          echo "- **Process Labels**: needs-triage, auto-generated, investigate" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📥 **Artifact**: Detailed triage report available in workflow artifacts" >> $GITHUB_STEP_SUMMARY

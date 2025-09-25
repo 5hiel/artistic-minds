@@ -1,0 +1,98 @@
+name: 📱 App Store - Feedback to GitHub Issues
+
+on:
+  # Manual trigger with configurable options
+  workflow_dispatch:
+    inputs:
+      days_back:
+        description: 'Number of days back to fetch reviews'
+        required: false
+        default: '7'
+        type: string
+      dry_run:
+        description: 'Dry run mode - do not create actual issues'
+        required: false
+        default: false
+        type: boolean
+      min_rating:
+        description: 'Minimum star rating to process (1-5)'
+        required: false
+        default: '1'
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '3'
+          - '4'
+          - '5'
+
+  # Scheduled run - daily at 6 AM PST (after daily release automation)
+  schedule:
+    - cron: '0 14 * * *'  # 6 AM PST = 14:00 UTC
+
+  # Allow CLI triggering
+  repository_dispatch:
+    types: [app-store-feedback-sync]
+
+  # Explicitly disable push triggers
+  push:
+    branches-ignore:
+      - '**'
+
+env:
+  GITHUB_TOKEN: ${{ github.token }}
+  APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+  APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+  APP_STORE_APP_ID: ${{ secrets.APP_STORE_APP_ID }}
+  APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+
+jobs:
+  sync-app-store-feedback:
+    name: Sync App Store Feedback
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set default parameters
+        id: params
+        run: |
+          # Use simple parameter assignment without complex conditionals
+          DAYS_BACK="${{ inputs.days_back }}"
+          DRY_RUN="${{ inputs.dry_run }}"
+          MIN_RATING="${{ inputs.min_rating }}"
+
+          # Set defaults if empty (simple approach)
+          DAYS_BACK=${DAYS_BACK:-7}
+          DRY_RUN=${DRY_RUN:-false}
+          MIN_RATING=${MIN_RATING:-1}
+
+          echo "days_back=$DAYS_BACK" >> $GITHUB_OUTPUT
+          echo "dry_run=$DRY_RUN" >> $GITHUB_OUTPUT
+          echo "min_rating=$MIN_RATING" >> $GITHUB_OUTPUT
+
+          echo "📊 Parameters set:"
+          echo "  Days back: $DAYS_BACK"
+          echo "  Dry run: $DRY_RUN"
+          echo "  Min rating: $MIN_RATING"
+
+      - name: Test basic functionality
+        run: |
+          echo "✅ Basic workflow structure working"
+          echo "Processed days back: ${{ steps.params.outputs.days_back }}"
+          echo "Processed dry run: ${{ steps.params.outputs.dry_run }}"
+          echo "Processed min rating: ${{ steps.params.outputs.min_rating }}"
+          echo "GitHub token available: ${{ env.GITHUB_TOKEN != '' }}"
+          echo "App Store ID: ${{ env.APP_STORE_APP_ID }}"

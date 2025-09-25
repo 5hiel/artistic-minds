@@ -1,0 +1,441 @@
+name: 🚀 Delivery Pipeline - Autonomous App Store Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+env:
+  # App Store Connect API Configuration
+  APP_STORE_CONNECT_ISSUER_ID: c40803b3-bacc-458b-8485-60029ade2485
+  APP_STORE_CONNECT_KEY_ID: 7VNJ8VMUU2
+  APP_STORE_APP_ID: 6751567047
+  APP_STORE_CONNECT_PRIVATE_KEY_PATH: ./AuthKey_7VNJ8VMUU2.p8
+
+jobs:
+  autonomous-app-store-release:
+    name: 🚀 Autonomous App Store Release Pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event.pull_request.merged == true
+    
+    steps:
+      - name: 🏗 Setup repo
+        uses: actions/checkout@v4
+
+      - name: 🏗 Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: ✅ Validate required secrets
+        run: |
+          echo "Validating required secrets and configuration..."
+
+          # Check EXPO_TOKEN
+          if [ -z "${{ secrets.EXPO_TOKEN }}" ]; then
+            echo "❌ EXPO_TOKEN secret is missing"
+            echo "Please set the EXPO_TOKEN secret in your repository settings"
+            exit 1
+          fi
+
+          # Check APP_STORE_CONNECT_PRIVATE_KEY
+          if [ -z "${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}" ]; then
+            echo "❌ APP_STORE_CONNECT_PRIVATE_KEY secret is missing"
+            echo "Please set the APP_STORE_CONNECT_PRIVATE_KEY secret in your repository settings"
+            exit 1
+          fi
+
+          # Verify eas.json exists
+          if [ ! -f "eas.json" ]; then
+            echo "❌ eas.json configuration file not found"
+            exit 1
+          fi
+
+          # Verify app.json exists
+          if [ ! -f "app.json" ]; then
+            echo "❌ app.json configuration file not found"
+            exit 1
+          fi
+
+          echo "✅ All required secrets and configuration files are present"
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🏗 Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: 🔐 Configure EAS credentials
+        run: |
+          # Verify EAS authentication
+          echo "Verifying EAS authentication..."
+          eas whoami
+
+          # Check project configuration
+          echo "Checking EAS project configuration..."
+          eas project:info
+
+      - name: 🧪 Run tests
+        run: |
+          npm run test:ci
+          npm run lint
+          npm run typecheck
+
+      - name: 🏗 Setup App Store Connect API Key
+        run: |
+          # Create App Store Connect API key file
+          if [ -z "${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}" ]; then
+            echo "❌ APP_STORE_CONNECT_PRIVATE_KEY secret is not set"
+            exit 1
+          fi
+
+          echo "${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}" > ./AuthKey_7VNJ8VMUU2.p8
+          chmod 600 ./AuthKey_7VNJ8VMUU2.p8
+
+          # Verify the key file was created
+          if [ ! -f "./AuthKey_7VNJ8VMUU2.p8" ]; then
+            echo "❌ Failed to create App Store Connect API key file"
+            exit 1
+          fi
+
+          echo "✅ App Store Connect API key configured"
+
+      - name: 📋 Gate - Check App Store Readiness
+        id: review-status
+        run: |
+          # Check if there are pending reviews using existing script
+          node scripts/workflows/app-store-review/quick-check.js > review_status.txt
+
+          # Check for blocking states where we CANNOT create a new version
+          # Only READY_FOR_SALE (Live on App Store) and rejected states allow new version creation
+          if grep -qE "(⏳ In review|⏰ Waiting for review|⚙️ Processing for App Store|📝 Prepare for submission|✅ Approved - Pending)" review_status.txt; then
+            echo "has_pending_review=true" >> $GITHUB_OUTPUT
+            echo "⚠️ App Store review or processing in progress - skipping release"
+            echo "🚫 Cannot create new version until current version reaches READY_FOR_SALE state"
+            echo "Current blocking status found:"
+            grep -E "(⏳ In review|⏰ Waiting for review|⚙️ Processing for App Store|📝 Prepare for submission|✅ Approved - Pending)" review_status.txt || true
+          else
+            # Check if current state allows new version creation
+            if grep -qE "(🎉 Live on App Store|❌ Rejected|❌ Developer rejected|❌ Invalid binary|❌ Metadata rejected|🔄 Replaced with new version)" review_status.txt; then
+              echo "has_pending_review=false" >> $GITHUB_OUTPUT
+              echo "✅ Current version state allows new version creation"
+              echo "Safe state found:"
+              grep -E "(🎉 Live on App Store|❌ Rejected|❌ Developer rejected|❌ Invalid binary|❌ Metadata rejected|🔄 Replaced with new version)" review_status.txt || true
+            else
+              echo "has_pending_review=true" >> $GITHUB_OUTPUT
+              echo "⚠️ Unknown App Store state - being cautious and skipping release"
+              echo "Current App Store status:"
+              cat review_status.txt | tail -5
+            fi
+          fi
+
+      - name: 🔢 Prepare - Smart Version Increment
+        if: steps.review-status.outputs.has_pending_review == 'false'
+        run: |
+          # Smart version increment that checks App Store first
+          echo "🔍 Starting smart version increment..."
+
+          current_version=$(node -e "console.log(require('./package.json').version)")
+          echo "Current local version: $current_version"
+
+          # Use smart version increment script
+          node scripts/workflows/dev-tools/smart-version-increment.js
+
+          new_version=$(node -e "console.log(require('./package.json').version)")
+          echo "✅ Smart increment completed: $new_version"
+          echo "new_version=$new_version" >> $GITHUB_OUTPUT
+        id: version
+
+
+      - name: 🎯 Create - App Store Version Entry
+        if: steps.review-status.outputs.has_pending_review == 'false'
+        id: app-store-version
+        run: |
+          echo "📝 Creating App Store version ${{ steps.version.outputs.new_version }} BEFORE build submission..."
+
+          # Verify App Store Connect API key is available
+          if [ ! -f "./AuthKey_7VNJ8VMUU2.p8" ]; then
+            echo "❌ App Store Connect API key not found"
+            exit 1
+          fi
+
+          # Create the App Store version with metadata
+          node scripts/workflows/daily-release/app-store-metadata.js "${{ steps.version.outputs.new_version }}" || {
+            echo "❌ Failed to create App Store version"
+            exit 1
+          }
+
+          echo "✅ App Store version ${{ steps.version.outputs.new_version }} created successfully!"
+          echo "version_created=true" >> $GITHUB_OUTPUT
+
+      - name: ✅ Validate - Version Creation Success
+        if: steps.review-status.outputs.has_pending_review == 'false' && steps.app-store-version.outputs.version_created == 'true'
+        id: validate-version
+        run: |
+          echo "🔍 Validating App Store version ${{ steps.version.outputs.new_version }} exists..."
+
+          # Wait a moment for API propagation
+          sleep 5
+
+          # Check if version was created successfully
+          node scripts/workflows/app-store-review/quick-check.js > version_check.txt || {
+            echo "❌ Failed to check App Store versions"
+            exit 1
+          }
+
+          # Verify our version appears in the list
+          if grep -q "${{ steps.version.outputs.new_version }}" version_check.txt; then
+            echo "✅ App Store version ${{ steps.version.outputs.new_version }} confirmed in App Store Connect"
+            echo "version_validated=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ App Store version ${{ steps.version.outputs.new_version }} not found in App Store Connect"
+            echo "Version check output:"
+            cat version_check.txt
+            exit 1
+          fi
+
+      - name: 🔨 Build - Production iOS Binary
+        if: steps.review-status.outputs.has_pending_review == 'false' && steps.validate-version.outputs.version_validated == 'true'
+        id: build
+        run: |
+          echo "Building version ${{ steps.version.outputs.new_version }} for iOS App Store"
+
+          # Verify EAS is authenticated
+          echo "Verifying EAS authentication before build..."
+          eas whoami || {
+            echo "❌ EAS authentication failed"
+            exit 1
+          }
+
+          # Start the build (non-blocking)
+          echo "🔨 Starting EAS build..."
+          build_output=$(eas build --platform ios --profile production --non-interactive 2>&1) || {
+            echo "❌ EAS build failed to start"
+            echo "$build_output"
+            exit 1
+          }
+
+          # Extract build ID from output - handles both "Build ID:" format and logs URL format
+          build_id=$(echo "$build_output" | grep -oE "Build ID: [a-zA-Z0-9-]+" | sed 's/Build ID: //' || echo "$build_output" | grep -oE "https://expo.dev/accounts/[^/]+/projects/[^/]+/builds/[a-zA-Z0-9-]+" | sed 's/.*builds\///')
+
+          if [ -z "$build_id" ]; then
+            echo "❌ Failed to extract build ID from output:"
+            echo "$build_output"
+            exit 1
+          fi
+
+          echo "✅ Build started successfully with ID: $build_id"
+          echo "🔗 Monitor build progress at: https://expo.dev/accounts/$(whoami)/projects/gifted-minds/builds/$build_id"
+          echo "build_id=$build_id" >> $GITHUB_OUTPUT
+          echo "build_url=https://expo.dev/accounts/$(whoami)/projects/gifted-minds/builds/$build_id" >> $GITHUB_OUTPUT
+
+      - name: 📱 Submit - Binary to App Store Connect
+        if: steps.review-status.outputs.has_pending_review == 'false' && steps.app-store-version.outputs.version_created == 'true' && steps.validate-version.outputs.version_validated == 'true'
+        run: |
+          echo "Submitting build ${{ steps.build.outputs.build_id }} to App Store version ${{ steps.version.outputs.new_version }}..."
+
+          # Verify we have a build ID
+          if [ -z "${{ steps.build.outputs.build_id }}" ]; then
+            echo "❌ No build ID available from previous step"
+            exit 1
+          fi
+
+          # Verify App Store version is validated
+          if [ "${{ steps.validate-version.outputs.version_validated }}" != "true" ]; then
+            echo "❌ App Store version ${{ steps.version.outputs.new_version }} was not validated"
+            exit 1
+          fi
+
+          # Submit specific build to App Store with explicit version targeting
+          echo "📱 Submitting build ${{ steps.build.outputs.build_id }} to validated App Store version ${{ steps.version.outputs.new_version }}..."
+          echo "⏳ Note: This will wait for the build to complete before submitting"
+
+          # Enhanced EAS submit command with explicit version information
+          echo "🔍 Using local appVersionSource configuration for version ${{ steps.version.outputs.new_version }}"
+          eas submit --platform ios --id ${{ steps.build.outputs.build_id }} --non-interactive --verbose || {
+            echo "❌ App Store submission failed"
+            echo "📋 Checking if version ${{ steps.version.outputs.new_version }} still exists in App Store Connect..."
+            node scripts/workflows/app-store-review/quick-check.js || true
+            exit 1
+          }
+
+          echo "✅ Successfully submitted build ${{ steps.build.outputs.build_id }} to App Store version ${{ steps.version.outputs.new_version }}"
+
+      - name: 🔍 Verify - Binary Attachment Success
+        if: steps.review-status.outputs.has_pending_review == 'false' && steps.app-store-version.outputs.version_created == 'true'
+        id: verify-submission
+        run: |
+          echo "🔍 Verifying binary attachment to App Store version ${{ steps.version.outputs.new_version }}..."
+
+          # Wait for submission processing
+          sleep 10
+
+          # Check App Store version status again to verify binary attachment
+          node scripts/workflows/app-store-review/quick-check.js > post_submit_check.txt || {
+            echo "❌ Failed to check App Store submission status"
+            exit 1
+          }
+
+          # Look for the version and check its status
+          if grep -q "${{ steps.version.outputs.new_version }}" post_submit_check.txt; then
+            echo "✅ Version ${{ steps.version.outputs.new_version }} found in App Store Connect"
+
+            # Extract status information
+            version_status=$(grep -A2 "Version ${{ steps.version.outputs.new_version }}" post_submit_check.txt | grep "Status:" || true)
+
+            if [ -n "$version_status" ]; then
+              echo "📋 $version_status"
+              echo "submission_verified=true" >> $GITHUB_OUTPUT
+
+              # Check if status indicates successful submission
+              if echo "$version_status" | grep -qE "(WAITING_FOR_REVIEW|IN_REVIEW|PREPARE_FOR_SUBMISSION|PROCESSING_FOR_APP_STORE)"; then
+                echo "✅ Binary appears to be properly attached and submitted"
+                echo "binary_attached=true" >> $GITHUB_OUTPUT
+              else
+                echo "⚠️ Version exists but status may indicate submission issue"
+                echo "📋 Full status check output:"
+                cat post_submit_check.txt
+                echo "binary_attached=false" >> $GITHUB_OUTPUT
+              fi
+            else
+              echo "⚠️ Could not determine version status"
+              echo "binary_attached=unknown" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "❌ Version ${{ steps.version.outputs.new_version }} not found in post-submission check"
+            echo "📋 Post-submission check output:"
+            cat post_submit_check.txt
+            echo "submission_verified=false" >> $GITHUB_OUTPUT
+            echo "binary_attached=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 🏷️ Finalize - Git Tags & GitHub Release
+        if: steps.review-status.outputs.has_pending_review == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json app.json
+          git commit -m "chore: bump version to ${{ steps.version.outputs.new_version }} (package.json + app.json) [skip ci]"
+          git tag "v${{ steps.version.outputs.new_version }}"
+          git push origin main
+          git push origin "v${{ steps.version.outputs.new_version }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📝 Generate Enhanced Release Notes
+        if: steps.review-status.outputs.has_pending_review == 'false'
+        id: release-notes
+        run: |
+          # Generate comprehensive release notes with enhanced script
+          node scripts/workflows/dev-tools/enhanced-release-notes.js "${{ steps.version.outputs.new_version }}" "${{ steps.build.outputs.build_id }}" > release_notes.txt
+
+          # Set multiline output for GitHub Actions
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          cat release_notes.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+
+      - name: 📄 Create GitHub Release
+        if: steps.review-status.outputs.has_pending_review == 'false'
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.version.outputs.new_version }}
+          release_name: "Gifted Minds v${{ steps.version.outputs.new_version }}"
+          body: |
+            ## 🎮 Gifted Minds v${{ steps.version.outputs.new_version }}
+            
+            **Auto-generated release from PR merge to main**
+            
+            ### 📱 App Store Submission
+            - ✅ Built and submitted to App Store for review
+            - 🔄 Auto-release enabled after Apple approval
+            - 📝 Release notes and metadata auto-generated
+            
+            ### 🔄 Changes in this release
+            ${{ steps.release-notes.outputs.notes }}
+            
+            ### 🚀 Deployment Status
+            - **iOS App Store**: Build in progress, will submit when complete
+            - **Version**: ${{ steps.version.outputs.new_version }}
+            - **Build ID**: ${{ steps.build.outputs.build_id }}
+            - **Build Monitor**: ${{ steps.build.outputs.build_url }}
+            - **Build Profile**: EAS Production
+            - **Auto-release**: Enabled after Apple approval
+            
+            ---
+            🤖 *This release was automatically generated by GitHub Actions*
+          draft: false
+          prerelease: false
+
+      - name: 💬 Post success notification
+        if: steps.review-status.outputs.has_pending_review == 'false'
+        run: |
+          echo "🎉 Auto-release initiated successfully!"
+          echo "📱 App Store version ${{ steps.version.outputs.new_version }} created and validated"
+          echo "🔨 EAS build started: ${{ steps.build.outputs.build_id }}"
+          echo "🔗 Monitor build progress: ${{ steps.build.outputs.build_url }}"
+          echo "📋 App Store metadata and version created first"
+          echo "✅ Version validation: ${{ steps.validate-version.outputs.version_validated }}"
+          echo "🔗 Binary attachment: ${{ steps.verify-submission.outputs.binary_attached }}"
+          echo "🏷️ GitHub release created with version tags"
+          echo "⏳ App Store submission with enhanced validation"
+          echo "🔄 App will auto-release after Apple approval"
+
+          # Enhanced logging with validation results
+          echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Auto-release v${{ steps.version.outputs.new_version }} initiated - Build: ${{ steps.build.outputs.build_id }} - Validation: ${{ steps.validate-version.outputs.version_validated }} - Binary: ${{ steps.verify-submission.outputs.binary_attached }}" >> logs/auto-release.log
+
+      - name: ⚠️ Skipped notification
+        if: steps.review-status.outputs.has_pending_review == 'true'
+        run: |
+          echo "⚠️ Auto-release skipped - App Store review pending"
+          echo "🔄 Will retry on next PR merge when reviews are clear"
+
+      - name: 🧹 Cleanup
+        if: always()
+        run: |
+          # Clean up sensitive files
+          rm -f ./AuthKey_7VNJ8VMUU2.p8
+          rm -f review_status.txt
+          rm -f release_notes.txt
+          rm -f version_check.txt
+          rm -f post_submit_check.txt
+
+  notify-failure:
+    name: Notify on Failure
+    runs-on: ubuntu-latest
+    needs: autonomous-app-store-release
+    if: failure() && github.event.pull_request.merged == true
+    
+    steps:
+      - name: 📧 Send failure notification
+        run: |
+          echo "❌ Auto-release failed for PR #${{ github.event.number }}"
+          echo "🔍 Check the workflow logs for details"
+          echo "📱 Manual release may be required"
+          
+          # You could integrate with Slack, Discord, or email notifications here
+          # Example: Send webhook to monitoring system
+          curl -X POST "${{ secrets.WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "text": "🚨 Gifted Minds auto-release failed",
+              "attachments": [{
+                "color": "danger",
+                "fields": [{
+                  "title": "PR Number",
+                  "value": "#${{ github.event.number }}",
+                  "short": true
+                }, {
+                  "title": "Branch",
+                  "value": "${{ github.head_ref }}",
+                  "short": true
+                }]
+              }]
+            }' || echo "Webhook notification failed - check WEBHOOK_URL secret"

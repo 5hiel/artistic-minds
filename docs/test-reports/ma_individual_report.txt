@@ -1,0 +1,132 @@
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:727:13)
+
+    console.log
+      ================================================================================
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:728:13)
+
+    console.log
+      
+      📈 **USER PROFILE EVOLUTION**
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:761:13)
+
+    console.log
+      Chunk Accuracy | 80.0% | 100.0% | 60.0% | 70.0% | 50.0% | 📉 ↘️
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:764:13)
+
+    console.log
+      Total Puzzles Solved | 50 | 50 | 50 | 50 | 50 | → →
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:767:13)
+
+    console.log
+      Overall Accuracy | 72.0% | 72.0% | 72.0% | 72.0% | 72.0% | → →
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:770:13)
+
+    console.log
+      
+      👤 **GM USER PROFILE EVOLUTION**
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:772:13)
+
+    console.log
+      Current Skill Level | 0.76 | 0.76 | 0.76 | 0.76 | 0.76 | → →
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:775:13)
+
+    console.log
+      Current Level | 0 | 1 | 2 | 3 | 4 | 📈 ↗️
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:778:13)
+
+    console.log
+      Skill Momentum | 0.01 | 0.01 | 0.01 | 0.01 | 0.01 | → →
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:781:13)
+
+    console.log
+      Learning Velocity | 0.01 | 0.01 | 0.01 | 0.01 | 0.01 | → →
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:784:13)
+
+    console.log
+      
+      🧩 **PUZZLE TYPE SUCCESS/TOTAL DISTRIBUTION**
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:787:13)
+
+    console.log
+      pattern | 2/2✅ | 4/4✅ | 1/2⚠️ | 3/4✅ | 2/3⚠️ | →
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:802:15)
+          at Array.forEach (<anonymous>)
+
+    console.log
+      number series | 1/1✅ | 3/3✅ | 2/2✅ | 0/1❌ | 0/1❌ | →
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:802:15)
+          at Array.forEach (<anonymous>)
+
+    console.log
+      serial reasoning | 3/4✅ | 2/2✅ | 3/3✅ | 2/2✅ | 1/2⚠️ | →
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:802:15)
+          at Array.forEach (<anonymous>)
+
+    console.log
+      algebraic reasoning | 1/2⚠️ | 0/0 | 0/2❌ | 1/1✅ | 0/0 | →
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:802:15)
+          at Array.forEach (<anonymous>)
+
+    console.log
+      number grid | 0/0 | 0/0 | 0/0 | 1/2⚠️ | 0/0 | →
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:802:15)
+          at Array.forEach (<anonymous>)
+
+    console.log
+      
+      🎯 **PATTERN PREFERENCE ANALYSIS**
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:806:13)
+
+    console.log
+      Pattern Preference Score | 0.66 | 0.66 | 0.66 | 0.66 | 0.66 | → →
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:808:13)
+
+    console.log
+      Pattern Success Rate | 80.0% | 80.0% | 80.0% | 80.0% | 80.0% | → →
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:811:13)
+
+    console.log
+      
+      ⚖️ **DIFFICULTY DISTRIBUTION**
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:814:13)
+
+    console.log
+      EASY | 7 (70%) | 7 (70%) | 7 (70%) | 9 (90%) | 5 (50%) | →
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:823:15)
+          at Array.forEach (<anonymous>)
+
+    console.log
+      MEDIUM | 0 (0%) | 0 (0%) | 0 (0%) | 0 (0%) | 0 (0%) | →
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:823:15)
+          at Array.forEach (<anonymous>)
+
+    console.log
+      HARD | 3 (30%) | 3 (30%) | 3 (30%) | 1 (10%) | 5 (50%) | →
+
+      at log (__tests__/personas/enhanced-configurable-persona.test.ts:823:15)
+          at Array.forEach (<anonymous>)
+
+    console.log

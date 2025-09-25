@@ -1,0 +1,161 @@
+name: 📊 Quality Monitor - Test Coverage Analysis
+
+on:
+  # Scheduled run - daily at midnight PST
+  schedule:
+    - cron: '0 8 * * *'  # Midnight PST = 08:00 UTC
+
+  # Manual trigger with configurable options
+  workflow_dispatch:
+    inputs:
+      min_coverage:
+        description: 'Minimum coverage threshold (%)'
+        required: false
+        default: '70'
+        type: string
+      max_issues:
+        description: 'Maximum issues to create per run'
+        required: false
+        default: '5'
+        type: string
+      dry_run:
+        description: 'Dry run mode - do not create actual issues'
+        required: false
+        default: false
+        type: boolean
+      verbose:
+        description: 'Enable verbose logging'
+        required: false
+        default: true
+        type: boolean
+
+  # Allow CLI triggering
+  repository_dispatch:
+    types: [daily-coverage-analysis]
+
+  # Explicitly disable push triggers
+  push:
+    branches-ignore:
+      - '**'
+
+env:
+  GITHUB_TOKEN: ${{ github.token }}
+
+jobs:
+  analyze-coverage:
+    name: Analyze Test Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch'
+    permissions:
+      contents: read
+      issues: write
+      repository-projects: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm install --save-dev @testing-library/react-hooks @testing-library/react-native
+
+      - name: Set parameters
+        id: params
+        run: |
+          MIN_COVERAGE="${{ inputs.min_coverage || '70' }}"
+          MAX_ISSUES="${{ inputs.max_issues || '5' }}"
+          DRY_RUN="${{ inputs.dry_run || 'false' }}"
+          VERBOSE="${{ inputs.verbose || 'true' }}"
+
+          echo "min_coverage=$MIN_COVERAGE" >> $GITHUB_OUTPUT
+          echo "max_issues=$MAX_ISSUES" >> $GITHUB_OUTPUT
+          echo "dry_run=$DRY_RUN" >> $GITHUB_OUTPUT
+          echo "verbose=$VERBOSE" >> $GITHUB_OUTPUT
+
+          echo "🎯 Analysis Parameters:"
+          echo "  Minimum coverage threshold: $MIN_COVERAGE%"
+          echo "  Maximum issues per run: $MAX_ISSUES"
+          echo "  Dry run mode: $DRY_RUN"
+          echo "  Verbose logging: $VERBOSE"
+
+      - name: Create logs directory
+        run: mkdir -p logs
+
+      - name: Run coverage analysis
+        id: analysis
+        run: |
+          echo "🔍 Starting test coverage analysis..."
+
+          # Build command arguments
+          ANALYSIS_ARGS="--min-coverage=${{ steps.params.outputs.min_coverage }}"
+          ANALYSIS_ARGS="$ANALYSIS_ARGS --max-issues=${{ steps.params.outputs.max_issues }}"
+
+          if [ "${{ steps.params.outputs.dry_run }}" = "true" ]; then
+            ANALYSIS_ARGS="$ANALYSIS_ARGS --dry-run"
+          fi
+
+          if [ "${{ steps.params.outputs.verbose }}" = "true" ]; then
+            ANALYSIS_ARGS="$ANALYSIS_ARGS --verbose"
+          fi
+
+          # Run the analysis script
+          node scripts/workflows/test-coverage/analyze-coverage.js $ANALYSIS_ARGS 2>&1 | tee analysis_output.txt
+
+          # Extract results from the report file
+          if [ -f "coverage-analysis-report.json" ]; then
+            TOTAL_FILES=$(node -e "console.log(JSON.parse(require('fs').readFileSync('coverage-analysis-report.json', 'utf8')).summary.totalFiles)")
+            FILES_NEEDING_IMPROVEMENT=$(node -e "console.log(JSON.parse(require('fs').readFileSync('coverage-analysis-report.json', 'utf8')).summary.filesNeedingImprovement)")
+            AVERAGE_COVERAGE=$(node -e "console.log(JSON.parse(require('fs').readFileSync('coverage-analysis-report.json', 'utf8')).summary.averageCoverage)")
+            ISSUES_CREATED=$(node -e "console.log(JSON.parse(require('fs').readFileSync('coverage-analysis-report.json', 'utf8')).issues.created)")
+
+            echo "total_files=$TOTAL_FILES" >> $GITHUB_OUTPUT
+            echo "files_needing_improvement=$FILES_NEEDING_IMPROVEMENT" >> $GITHUB_OUTPUT
+            echo "average_coverage=$AVERAGE_COVERAGE" >> $GITHUB_OUTPUT
+            echo "issues_created=$ISSUES_CREATED" >> $GITHUB_OUTPUT
+
+            echo "📊 Analysis Results:"
+            echo "  Total files analyzed: $TOTAL_FILES"
+            echo "  Files needing improvement: $FILES_NEEDING_IMPROVEMENT"
+            echo "  Average coverage: $AVERAGE_COVERAGE%"
+            echo "  Issues created: $ISSUES_CREATED"
+          else
+            echo "total_files=0" >> $GITHUB_OUTPUT
+            echo "files_needing_improvement=0" >> $GITHUB_OUTPUT
+            echo "average_coverage=0" >> $GITHUB_OUTPUT
+            echo "issues_created=0" >> $GITHUB_OUTPUT
+            echo "⚠️ No analysis report generated"
+          fi
+
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## Test Coverage Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "**Schedule:** Every midnight PST daily" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Coverage Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total files analyzed:** ${{ steps.analysis.outputs.total_files }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Files needing improvement:** ${{ steps.analysis.outputs.files_needing_improvement }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Average coverage:** ${{ steps.analysis.outputs.average_coverage }}%" >> $GITHUB_STEP_SUMMARY
+          echo "- **Minimum threshold:** ${{ steps.params.outputs.min_coverage }}%" >> $GITHUB_STEP_SUMMARY
+          echo "- **Maximum issues per run:** ${{ steps.params.outputs.max_issues }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dry run mode:** ${{ steps.params.outputs.dry_run }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Add success/failure indicator
+          if [ "${{ steps.analysis.outputs.issues_created }}" -eq 0 ] && [ "${{ steps.analysis.outputs.files_needing_improvement }}" -eq 0 ]; then
+            echo "✅ **Status:** All files meet coverage thresholds!" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ steps.analysis.outputs.issues_created }}" -gt 0 ]; then
+            echo "📝 **Status:** Created ${{ steps.analysis.outputs.issues_created }} improvement issues" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Status:** Analysis completed with warnings" >> $GITHUB_STEP_SUMMARY
+          fi

@@ -1,0 +1,322 @@
+name: Test - Usability Testing on PR
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to test'
+        required: false
+        type: string
+
+jobs:
+  usability-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    steps:
+      - name: Checkout PR code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Install Playwright
+        run: |
+          npm install --save-dev playwright
+          npx playwright install chromium
+          
+      - name: Start web server
+        run: |
+          echo "Starting web server on port 8084..."
+          npx expo start --web --port 8084 &
+          echo $! > web-server.pid
+          
+          # Wait for server to be ready with better logging
+          echo "Waiting for server to be ready..."
+          for i in {1..45}; do
+            if curl -s http://localhost:8084 > /dev/null; then
+              echo "✅ Server responded after ${i} attempts"
+              # Additional wait for React app to fully load
+              sleep 5
+              echo "✅ Allowing extra time for React app initialization"
+              break
+            fi
+            echo "Attempt $i: Server not ready yet, waiting..."
+            sleep 3
+            if [ $i -eq 45 ]; then
+              echo "❌ Server failed to start after 135 seconds"
+              curl -v http://localhost:8084 || true
+              exit 1
+            fi
+          done
+        
+      - name: Run enhanced usability test with assertions
+        id: usability_test
+        run: |
+          # Use the enhanced test script with strategic assertions
+          node .github/workflows/enhanced-usability-test.js
+
+          # Validate strategic screenshots created
+          echo "Strategic screenshots and test artifacts created:"
+          ls -la test-*.jpg usability-results.json 2>/dev/null || echo "No test files found"
+
+          # Validate that we have the key screenshots we need
+          echo "\\nValidating strategic screenshots:"
+          for screenshot in "1-game-loaded" "2-power-surge-detected" "3-first-puzzle" "4-wrong-answer-feedback" "5-correct-answer-feedback" "6-score-flash" "7-power-buttons" "8-share-screen" "9-test-complete"; do
+            if [ -f "test-${screenshot}.jpg" ]; then
+              echo "✅ $screenshot screenshot captured"
+            else
+              echo "⚠️ $screenshot screenshot missing"
+            fi
+          done
+          
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: usability-test-results
+          path: |
+            test-*.jpg
+            test-*.png
+            usability-results.json
+          retention-days: 30
+          if-no-files-found: warn
+          
+      - name: Generate enhanced test report
+        if: always()
+        run: |
+          echo "## 🎮 Enhanced Usability Test Report" >> test-report.md
+          echo "" >> test-report.md
+
+          if [ -f usability-results.json ]; then
+            PUZZLES_SEEN=$(jq -r '.puzzlesSeen' usability-results.json)
+            PUZZLE_TYPES=$(jq -r '.puzzleTypes | join(", ")' usability-results.json)
+            LOAD_TIME=$(jq -r '.performance.loadTime' usability-results.json)
+            ERROR_COUNT=$(jq -r '.errors | length' usability-results.json)
+            BUTTON_COUNT=$(jq -r '.accessibility.buttonCount' usability-results.json)
+            VALIDATION_RATE=$(jq -r '.validationSuccessRate' usability-results.json)
+
+            echo "### 📊 Test Results" >> test-report.md
+            echo "- **Validation Success Rate**: ${VALIDATION_RATE}%" >> test-report.md
+            echo "- **Puzzles encountered**: $PUZZLES_SEEN" >> test-report.md
+            echo "- **Puzzle types**: $PUZZLE_TYPES" >> test-report.md
+            echo "- **Load time**: ${LOAD_TIME}ms" >> test-report.md
+            echo "- **Accessibility**: $BUTTON_COUNT interactive elements" >> test-report.md
+            echo "" >> test-report.md
+
+            echo "### 🔍 Feature Validation Results" >> test-report.md
+
+            # Power Surge
+            POWER_SURGE=$(jq -r '.validationResults.powerSurgeWorking' usability-results.json)
+            if [ "$POWER_SURGE" = "true" ]; then
+              echo "- ⚡ **Power Surge System**: ✅ Working" >> test-report.md
+            else
+              echo "- ⚡ **Power Surge System**: ❌ Not detected" >> test-report.md
+            fi
+
+            # Answer Feedback
+            CORRECT_FEEDBACK=$(jq -r '.validationResults.correctAnswerFeedback' usability-results.json)
+            WRONG_FEEDBACK=$(jq -r '.validationResults.wrongAnswerFeedback' usability-results.json)
+            if [ "$CORRECT_FEEDBACK" = "true" ]; then
+              echo "- ✅ **Correct Answer Feedback**: ✅ Working" >> test-report.md
+            else
+              echo "- ✅ **Correct Answer Feedback**: ❌ Not detected" >> test-report.md
+            fi
+            if [ "$WRONG_FEEDBACK" = "true" ]; then
+              echo "- ❌ **Wrong Answer Feedback**: ✅ Working" >> test-report.md
+            else
+              echo "- ❌ **Wrong Answer Feedback**: ❌ Not detected" >> test-report.md
+            fi
+
+            # Other Features
+            SHARE_SCREEN=$(jq -r '.validationResults.shareScreenWorking' usability-results.json)
+            POWER_BUTTONS=$(jq -r '.validationResults.powerUpButtonsWorking' usability-results.json)
+            SCORE_FLASH=$(jq -r '.validationResults.scoreFlashing' usability-results.json)
+
+            echo "- 📱 **Share Screen**: $([ "$SHARE_SCREEN" = "true" ] && echo "✅ Working" || echo "❌ Not detected")" >> test-report.md
+            echo "- 💪 **Power-up Buttons**: $([ "$POWER_BUTTONS" = "true" ] && echo "✅ Working" || echo "❌ Not detected")" >> test-report.md
+            echo "- ✨ **Score Flashing**: $([ "$SCORE_FLASH" = "true" ] && echo "✅ Working" || echo "❌ Not detected")" >> test-report.md
+            echo "" >> test-report.md
+
+            if [ "$ERROR_COUNT" -gt 0 ]; then
+              echo "### ⚠️ Issues Found" >> test-report.md
+              jq -r '.errors[]' usability-results.json | while read error; do
+                echo "- $error" >> test-report.md
+              done
+              echo "" >> test-report.md
+            fi
+
+            echo "### 📸 Strategic Screenshots" >> test-report.md
+            echo "*Screenshots captured at key validation moments:*" >> test-report.md
+            echo "" >> test-report.md
+          else
+            echo "❌ Test failed to complete - no results generated" >> test-report.md
+          fi
+
+          echo "---" >> test-report.md
+          echo "*Enhanced automated usability testing with assertions completed at $(date)*" >> test-report.md
+          
+      - name: Stop web server
+        if: always()
+        run: |
+          if [ -f web-server.pid ]; then
+            kill $(cat web-server.pid) || true
+            rm web-server.pid
+          fi
+          
+      - name: Upload screenshots to GitHub Pages
+        uses: actions/github-script@v6
+        if: always() && github.event.pull_request
+        with:
+          github-token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          script: |
+            const fs = require('fs');
+            
+            try {
+              // Get PR number and create folder path
+              const prNumber = context.issue.number;
+              const screenshotPath = `screenshots/gifted-minds/pr-${prNumber}`;
+              
+              // Find all screenshot files (JPG and PNG)
+              const screenshotFiles = fs.readdirSync('.').filter(file => file.match(/^test-.*\.(jpg|png)$/));
+              
+              if (screenshotFiles.length > 0) {
+                console.log(`Uploading ${screenshotFiles.length} screenshots to GitHub Pages...`);
+                
+                // Upload each screenshot file
+                for (const filename of screenshotFiles) {
+                  try {
+                    const content = fs.readFileSync(filename, { encoding: 'base64' });
+                    const fileSize = fs.statSync(filename).size;
+                    
+                    console.log(`Uploading ${filename} (${Math.round(fileSize/1024)}KB)...`);
+                    
+                    await github.rest.repos.createOrUpdateFileContents({
+                      owner: '5hiel',
+                      repo: 'iOS-pages',
+                      path: `${screenshotPath}/${filename}`,
+                      message: `Add screenshot ${filename} for PR #${prNumber}`,
+                      content: content,
+                      committer: {
+                        name: 'github-actions[bot]',
+                        email: 'github-actions[bot]@users.noreply.github.com'
+                      }
+                    });
+                    
+                    console.log(`✅ Uploaded ${filename}`);
+                  } catch (uploadError) {
+                    console.log(`Failed to upload ${filename}:`, uploadError);
+                  }
+                }
+              } else {
+                console.log('No screenshots found to upload');
+              }
+            } catch (error) {
+              console.log('Could not upload screenshots:', error);
+            }
+          
+      - name: Comment PR with results and screenshots
+        uses: actions/github-script@v6
+        if: always() && github.event.pull_request
+        with:
+          script: |
+            const fs = require('fs');
+            
+            try {
+              let enhancedReport = '';
+              
+              // Read base test report if it exists
+              if (fs.existsSync('test-report.md')) {
+                enhancedReport = fs.readFileSync('test-report.md', 'utf8');
+              } else {
+                enhancedReport = '## 🎮 Usability Test Report\n\n❌ Test failed to complete - no results generated\n\n';
+              }
+              
+              // Find all screenshot files (JPG and PNG)
+              const screenshotFiles = fs.readdirSync('.').filter(file => file.match(/^test-.*\.(jpg|png)$/));
+              
+              if (screenshotFiles.length > 0) {
+                console.log(`Found ${screenshotFiles.length} screenshots to embed`);
+                
+                // Replace the download link section with GitHub Pages screenshots
+                enhancedReport = enhancedReport.replace(
+                  /📥 \*\*Download Screenshots\*\*:.*$/m,
+                  '### 📸 Screenshots\n'
+                );
+                
+                // Get PR number for GitHub Pages URLs
+                const prNumber = context.issue.number;
+                const baseUrl = `https://5hiel.github.io/iOS-pages/screenshots/gifted-minds/pr-${prNumber}`;
+                
+                // Strategic screenshot descriptions
+                const screenshotDescriptions = {
+                  'test-1-game-loaded.jpg': '🎮 **Game Loading**: Initial game state and load validation',
+                  'test-2-power-surge-detected.jpg': '⚡ **Power Surge**: Timer system detection and validation',
+                  'test-3-first-puzzle.jpg': '🧩 **First Puzzle**: Puzzle detection and interaction readiness',
+                  'test-4-wrong-answer-feedback.jpg': '❌ **Wrong Answer**: Error feedback and user guidance',
+                  'test-5-correct-answer-feedback.jpg': '✅ **Correct Answer**: Success feedback and validation',
+                  'test-6-score-flash.jpg': '✨ **Score Flash**: Score animation and progression display',
+                  'test-7-power-buttons.jpg': '💪 **Power-up Buttons**: Monetization features available',
+                  'test-8-share-screen.jpg': '📱 **Share Screen**: Social sharing and viral functionality',
+                  'test-9-test-complete.jpg': '🏁 **Test Complete**: Final game state after validation',
+                  'test-error-critical.jpg': '💥 **Critical Error**: Test failure state (if occurred)'
+                };
+
+                // Add strategic screenshots with descriptions
+                for (const filename of screenshotFiles.sort()) {
+                  try {
+                    const fileSize = fs.statSync(filename).size;
+                    const fileSizeKB = Math.round(fileSize / 1024);
+
+                    const description = screenshotDescriptions[filename] ||
+                      `📸 **${filename.replace('test-', '').replace('.jpg', '').replace(/\b\w/g, l => l.toUpperCase())}**`;
+
+                    const screenshotUrl = `${baseUrl}/${filename}`;
+                    enhancedReport += `\n${description} (${fileSizeKB}KB)\n![${filename}](${screenshotUrl})\n`;
+
+                  } catch (imageError) {
+                    console.log(`Failed to read ${filename}:`, imageError);
+                    enhancedReport += `- ❌ ${filename}: Could not read file\n`;
+                  }
+                }
+              } else {
+                console.log('No screenshots found to embed');
+                enhancedReport += '\n### 📸 Screenshots\n\n*No screenshots were captured during this test run.*\n';
+              }
+              
+              // Post single comment with GitHub Pages screenshots
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: enhancedReport
+              });
+              
+            } catch (error) {
+              console.log('Could not create enhanced report:', error);
+              
+              // Fallback to basic report
+              let fallbackBody = '## 🎮 Usability Test\n\n';
+              if (fs.existsSync('test-report.md')) {
+                fallbackBody = fs.readFileSync('test-report.md', 'utf8');
+              } else {
+                fallbackBody += '❌ Test failed to complete. Check the workflow logs for details.';
+              }
+              
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: fallbackBody
+              });
+            }

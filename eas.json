@@ -1,0 +1,38 @@
+{
+  "cli": {
+    "version": ">= 16.17.4",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      }
+    },
+    "production": {
+      "distribution": "store",
+      "autoIncrement": true,
+      "ios": {
+        "simulator": false,
+        "image": "latest"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleId": "shiladitya.neogi@gmail.com",
+        "ascAppId": "6751567047",
+        "appleTeamId": "U48C67ZVND"
+      }
+    }
+  }
+}

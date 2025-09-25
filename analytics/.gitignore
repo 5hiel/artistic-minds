@@ -1,0 +1,11 @@
+# Test Analytics Database - Local Only
+test_analytics.db
+test_analytics.db-journal
+*.db
+*.db-journal
+
+# Temporary analysis files
+*.tmp
+*.csv
+reports/
+exports/

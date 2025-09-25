@@ -1,0 +1,167 @@
+name: ✅ Quality Gate - Continuous Integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15  # Prevent 6-hour hangs
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests with coverage
+        run: npm run test:ci
+        timeout-minutes: 10  # Kill test job after 10 minutes
+        env:
+          CI: true
+          NODE_OPTIONS: --max-old-space-size=4096
+      
+      - name: Generate coverage summary
+        if: always()
+        run: |
+          echo "## 📊 Test Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          node scripts/generate-coverage-summary.js >> $GITHUB_STEP_SUMMARY
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+          
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        if: always()
+        with:
+          fail_ci_if_error: false
+          verbose: true
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run linter
+        run: npm run lint
+
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run TypeScript type check
+        run: npm run typecheck
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+
+  expo-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10  # Prevent hangs on web build
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check Expo configuration
+        run: npx expo-doctor
+
+      - name: Test web build
+        run: |
+          npx expo export -p web
+          echo "✅ Web export successful"
+        timeout-minutes: 5  # Web builds should complete quickly
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+
+  script-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Validate script syntax
+        run: |
+          echo "🔍 Validating JavaScript files..."
+          find scripts -name "*.js" -exec node -c {} \;
+          echo "✅ All scripts have valid syntax"
+      
+      - name: Check script permissions
+        run: |
+          echo "🔍 Checking script permissions..."
+          find scripts -name "*.sh" -exec test -x {} \; || {
+            echo "⚠️  Some shell scripts are not executable"
+            find scripts -name "*.sh" ! -executable
+          }
+
+  test-summary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [test, lint, typecheck, expo-check, script-validation]
+    if: always()
+    steps:
+      - name: Test Results Summary
+        run: |
+          echo "## CI Pipeline Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY  
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Tests | ${{ needs.test.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Linting | ${{ needs.lint.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Type Check | ${{ needs.typecheck.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Expo Check | ${{ needs.expo-check.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Script Validation | ${{ needs.script-validation.result }} |" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ needs.test.result }}" == "success" && "${{ needs.lint.result }}" == "success" && "${{ needs.typecheck.result }}" == "success" ]]; then
+            echo "✅ **All core checks passed!**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Some core checks failed**" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi

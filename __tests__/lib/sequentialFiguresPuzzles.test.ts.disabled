@@ -1,0 +1,429 @@
+import { 
+  SequentialFiguresPuzzleGenerator, 
+  SequentialFiguresPuzzle,
+  TransformationType,
+  GeometricShape,
+  ShadingLevel,
+  ReflectionType,
+  sequentialFiguresPuzzleGenerator
+} from '../../lib/puzzles/visual/sequentialFigures';
+import { PuzzleValidator } from '../../lib/core/basePuzzle';
+
+describe('SequentialFiguresPuzzleGenerator', () => {
+  let generator: SequentialFiguresPuzzleGenerator;
+
+  beforeEach(() => {
+    generator = new SequentialFiguresPuzzleGenerator();
+  });
+
+  describe('Static Puzzles', () => {
+    test('should have comprehensive static puzzle collection', () => {
+      expect(generator.staticPuzzles).toBeDefined();
+      expect(generator.staticPuzzles.length).toBeGreaterThanOrEqual(5);
+      
+      // Log first few puzzles for verification
+      generator.staticPuzzles.slice(0, 5).forEach((puzzle, index) => {
+        console.log(`Puzzle ${index + 1}: ${puzzle.question} → Answer: ${puzzle.options[puzzle.correctAnswerIndex]}`);
+      });
+    });
+
+    test('should have valid sequential figures puzzle structure', () => {
+      generator.staticPuzzles.forEach((puzzle, index) => {
+        expect(PuzzleValidator.validatePuzzle(puzzle)).toBe(true);
+        
+        // SequentialFiguresPuzzle specific properties
+        expect(puzzle.sequence).toBeDefined();
+        expect(Array.isArray(puzzle.sequence)).toBe(true);
+        expect(puzzle.sequenceLength).toBeDefined();
+        expect([3, 4, 5]).toContain(puzzle.sequenceLength);
+        expect(puzzle.transformationType).toBeDefined();
+        expect(Object.values(TransformationType)).toContain(puzzle.transformationType);
+        expect(['easy', 'medium', 'hard']).toContain(puzzle.difficultyLevel);
+        
+        // Base puzzle properties
+        expect(puzzle.question).toBeTruthy();
+        expect(puzzle.options).toHaveLength(4);
+        expect(puzzle.correctAnswerIndex).toBeGreaterThanOrEqual(0);
+        expect(puzzle.correctAnswerIndex).toBeLessThan(4);
+        expect(puzzle.explanation).toBeTruthy();
+        
+        // Sequence properties
+        expect(puzzle.sequence).toHaveLength(puzzle.sequenceLength);
+        puzzle.sequence.forEach(figure => {
+          expect(figure.shape).toBeDefined();
+          expect(figure.rotation).toBeDefined();
+          expect(figure.reflection).toBeDefined();
+          expect(figure.shading).toBeDefined();
+          expect(figure.position).toBeDefined();
+          expect(figure.elements).toBeDefined();
+        });
+      });
+    });
+
+    test('should cover all transformation types', () => {
+      const transformationTypes = generator.staticPuzzles.map(p => p.transformationType);
+      const uniqueTypes = new Set(transformationTypes);
+      
+      expect(uniqueTypes.has(TransformationType.GEOMETRIC_PROGRESSION)).toBe(true);
+      expect(uniqueTypes.has(TransformationType.ROTATION)).toBe(true);
+      expect(uniqueTypes.has(TransformationType.SHADING_PROGRESSION)).toBe(true);
+      expect(uniqueTypes.has(TransformationType.REFLECTION)).toBe(true);
+      expect(uniqueTypes.has(TransformationType.ELEMENT_MODIFICATION)).toBe(true);
+    });
+
+    test('should have varied sequence lengths', () => {
+      const sequenceLengths = generator.staticPuzzles.map(p => p.sequenceLength);
+      const uniqueLengths = new Set(sequenceLengths);
+      
+      expect(uniqueLengths.size).toBeGreaterThan(1);
+      expect(Array.from(uniqueLengths).every(len => len >= 3 && len <= 5)).toBe(true);
+    });
+
+    test('should use different difficulty levels', () => {
+      const difficultyLevels = generator.staticPuzzles.map(p => p.difficultyLevel);
+      const uniqueLevels = new Set(difficultyLevels);
+      
+      expect(uniqueLevels.size).toBeGreaterThan(1);
+      expect(Array.from(uniqueLevels).every(level => level >= 1 && level <= 5)).toBe(true);
+    });
+  });
+
+  describe('Static Puzzle Content Validation', () => {
+    test('geometric progression puzzle (triangle → square → pentagon)', () => {
+      const geoPuzzle = generator.staticPuzzles.find(p => 
+        p.transformationType === TransformationType.GEOMETRIC_PROGRESSION
+      );
+      
+      expect(geoPuzzle).toBeDefined();
+      if (geoPuzzle) {
+        expect(geoPuzzle.sequence[0].shape).toBe(GeometricShape.TRIANGLE);
+        expect(geoPuzzle.sequence[1].shape).toBe(GeometricShape.SQUARE);
+        expect(geoPuzzle.sequence[2].shape).toBe(GeometricShape.PENTAGON);
+        expect(geoPuzzle.options[geoPuzzle.correctAnswerIndex]).toBe('⬢'); // hexagon
+      }
+    });
+
+    test('rotation puzzle (triangle rotating 90° steps)', () => {
+      const rotPuzzle = generator.staticPuzzles.find(p => 
+        p.transformationType === TransformationType.ROTATION
+      );
+      
+      expect(rotPuzzle).toBeDefined();
+      if (rotPuzzle) {
+        expect(rotPuzzle.sequence.every(fig => fig.shape === GeometricShape.TRIANGLE)).toBe(true);
+        expect(rotPuzzle.sequence[0].rotation).toBe(0);
+        expect(rotPuzzle.sequence[1].rotation).toBe(90);
+        expect(rotPuzzle.sequence[2].rotation).toBe(180);
+      }
+    });
+
+    test('shading progression puzzle (light → medium → dark)', () => {
+      const shadingPuzzle = generator.staticPuzzles.find(p => 
+        p.transformationType === TransformationType.SHADING_PROGRESSION
+      );
+      
+      expect(shadingPuzzle).toBeDefined();
+      if (shadingPuzzle) {
+        expect(shadingPuzzle.sequence[0].shading).toBe(ShadingLevel.LIGHT);
+        expect(shadingPuzzle.sequence[1].shading).toBe(ShadingLevel.MEDIUM);
+        expect(shadingPuzzle.sequence[2].shading).toBe(ShadingLevel.DARK);
+      }
+    });
+  });
+
+  describe('Generator Methods', () => {
+    test('getNext() should cycle through static puzzles', () => {
+      const puzzle1 = generator.getNext();
+      const puzzle2 = generator.getNext();
+      
+      expect(PuzzleValidator.validatePuzzle(puzzle1)).toBe(true);
+      expect(PuzzleValidator.validatePuzzle(puzzle2)).toBe(true);
+      expect(puzzle1).not.toEqual(puzzle2);
+    });
+
+    test('getNext() should wrap around after reaching end', () => {
+      const staticCount = generator.getStaticCount();
+      const puzzles: SequentialFiguresPuzzle[] = [];
+      
+      // Get all static puzzles plus one more to test wrapping
+      for (let i = 0; i < staticCount + 1; i++) {
+        puzzles.push(generator.getNext());
+      }
+      
+      expect(puzzles[0]).toEqual(puzzles[staticCount]);
+    });
+
+    test('getStaticCount() should return correct count', () => {
+      const count = generator.getStaticCount();
+      expect(count).toBe(generator.staticPuzzles.length);
+      expect(count).toBeGreaterThanOrEqual(5);
+    });
+
+    test('resetRotation() should reset to first puzzle', () => {
+      generator.getNext(); // Move to second puzzle
+      generator.getNext(); // Move to third puzzle
+      
+      generator.resetRotation?.();
+      const puzzle = generator.getNext();
+      
+      expect(puzzle).toEqual(generator.staticPuzzles[0]);
+    });
+  });
+
+  describe('Dynamic Puzzle Generation', () => {
+    test('getRandom() should generate valid puzzles', () => {
+      for (let i = 0; i < 20; i++) {
+        const puzzle = generator.getRandom();
+        
+        expect(PuzzleValidator.validatePuzzle(puzzle)).toBe(true);
+        expect(puzzle.sequence).toBeDefined();
+        expect([3, 4, 5]).toContain(puzzle.sequenceLength);
+        expect(puzzle.sequence).toHaveLength(puzzle.sequenceLength);
+        expect(Object.values(TransformationType)).toContain(puzzle.transformationType);
+        expect(['easy', 'medium', 'hard']).toContain(puzzle.difficultyLevel);
+        expect(puzzle.options).toHaveLength(4);
+        
+        console.log(`Dynamic Puzzle ${i + 1}: ${puzzle.question} → ${puzzle.options[puzzle.correctAnswerIndex]} (${puzzle.transformationType}, Level ${puzzle.difficultyLevel})`);
+      }
+    });
+
+    test('should generate different transformation types with proper distribution', () => {
+      const puzzles = Array.from({ length: 30 }, () => generator.getRandom());
+      const transformationTypes = puzzles.map(p => p.transformationType);
+      const typeDistribution = transformationTypes.reduce((acc, type) => {
+        acc[type] = (acc[type] || 0) + 1;
+        return acc;
+      }, {} as Record<TransformationType, number>);
+      
+      console.log('Transformation Distribution:', Object.entries(typeDistribution).map(
+        ([type, count]) => `${type}: ${Math.round(count/30*100)}%`
+      ).join(', '));
+      
+      // Should have variety (at least 3 different transformation types)
+      expect(Object.keys(typeDistribution).length).toBeGreaterThanOrEqual(3);
+    });
+
+    test('should generate different difficulty levels', () => {
+      const puzzles = Array.from({ length: 25 }, () => generator.getRandom());
+      const difficulties = puzzles.map(p => p.difficultyLevel);
+      const uniqueDifficulties = new Set(difficulties);
+      
+      expect(uniqueDifficulties.size).toBeGreaterThanOrEqual(3);
+      expect(Array.from(uniqueDifficulties).every(d => ['easy', 'medium', 'hard'].includes(d))).toBe(true);
+    });
+
+    test('should correlate sequence length with difficulty', () => {
+      const puzzles = Array.from({ length: 50 }, () => generator.getRandom());
+      
+      const easyPuzzles = puzzles.filter(p => p.difficultyLevel <= 2);
+      const mediumPuzzles = puzzles.filter(p => p.difficultyLevel === 3 || p.difficultyLevel === 4);
+      const hardPuzzles = puzzles.filter(p => p.difficultyLevel === 5);
+      
+      if (easyPuzzles.length > 0) {
+        const avgEasyLength = easyPuzzles.reduce((sum, p) => sum + p.sequenceLength, 0) / easyPuzzles.length;
+        expect(avgEasyLength).toBeLessThanOrEqual(3.5); // Should tend towards 3
+      }
+      
+      if (hardPuzzles.length > 0) {
+        const avgHardLength = hardPuzzles.reduce((sum, p) => sum + p.sequenceLength, 0) / hardPuzzles.length;
+        expect(avgHardLength).toBeGreaterThanOrEqual(4.5); // Should tend towards 5
+      }
+    });
+
+    test('should generate geometric progression sequences correctly', () => {
+      // Force generation of geometric progression puzzles
+      const geoPuzzles = [];
+      let attempts = 0;
+      while (geoPuzzles.length < 5 && attempts < 100) {
+        const puzzle = generator.getRandom();
+        if (puzzle.transformationType === TransformationType.GEOMETRIC_PROGRESSION) {
+          geoPuzzles.push(puzzle);
+        }
+        attempts++;
+      }
+      
+      expect(geoPuzzles.length).toBeGreaterThan(0);
+      geoPuzzles.forEach(puzzle => {
+        expect(PuzzleValidator.validatePuzzle(puzzle)).toBe(true);
+        // Verify the sequence follows geometric progression logic
+        expect(puzzle.sequence.length).toBeGreaterThanOrEqual(3);
+      });
+    });
+
+    test('should generate rotation sequences with valid angles', () => {
+      const rotPuzzles = [];
+      let attempts = 0;
+      while (rotPuzzles.length < 3 && attempts < 100) {
+        const puzzle = generator.getRandom();
+        if (puzzle.transformationType === TransformationType.ROTATION) {
+          rotPuzzles.push(puzzle);
+        }
+        attempts++;
+      }
+      
+      rotPuzzles.forEach(puzzle => {
+        expect(PuzzleValidator.validatePuzzle(puzzle)).toBe(true);
+        // Verify rotation angles are valid
+        puzzle.sequence.forEach(figure => {
+          expect(figure.rotation).toBeGreaterThanOrEqual(0);
+          expect(figure.rotation).toBeLessThan(360);
+          expect(figure.rotation % 60 === 0 || figure.rotation % 90 === 0).toBe(true); // Should be 60° or 90° increments
+        });
+      });
+    });
+  });
+
+  describe('Singleton Instance', () => {
+    test('sequentialFiguresPuzzleGenerator should be properly instantiated', () => {
+      expect(sequentialFiguresPuzzleGenerator).toBeInstanceOf(SequentialFiguresPuzzleGenerator);
+      expect(sequentialFiguresPuzzleGenerator.staticPuzzles).toBeDefined();
+      expect(sequentialFiguresPuzzleGenerator.getStaticCount()).toBeGreaterThan(0);
+    });
+
+    test('singleton methods should work correctly', () => {
+      const puzzle = sequentialFiguresPuzzleGenerator.getNext();
+      expect(PuzzleValidator.validatePuzzle(puzzle)).toBe(true);
+      
+      const randomPuzzle = sequentialFiguresPuzzleGenerator.getRandom();
+      expect(PuzzleValidator.validatePuzzle(randomPuzzle)).toBe(true);
+    });
+  });
+
+  describe('Educational Value', () => {
+    test('explanations should provide clear transformation descriptions', () => {
+      generator.staticPuzzles.forEach(puzzle => {
+        expect(puzzle.explanation).toBeTruthy();
+        expect(puzzle.explanation.length).toBeGreaterThan(20);
+        
+        // Should contain relevant keywords based on transformation type
+        const explanation = puzzle.explanation.toLowerCase();
+        
+        switch (puzzle.transformationType) {
+          case TransformationType.GEOMETRIC_PROGRESSION:
+            expect(
+              explanation.includes('geometric') || 
+              explanation.includes('sides') || 
+              explanation.includes('progression')
+            ).toBe(true);
+            break;
+          case TransformationType.ROTATION:
+            expect(
+              explanation.includes('rotat') || 
+              explanation.includes('degree') || 
+              explanation.includes('clockwise')
+            ).toBe(true);
+            break;
+          case TransformationType.SHADING_PROGRESSION:
+            expect(
+              explanation.includes('shading') || 
+              explanation.includes('light') || 
+              explanation.includes('dark')
+            ).toBe(true);
+            break;
+          case TransformationType.REFLECTION:
+            expect(
+              explanation.includes('reflect') || 
+              explanation.includes('flip') || 
+              explanation.includes('mirror')
+            ).toBe(true);
+            break;
+          case TransformationType.ELEMENT_MODIFICATION:
+            expect(
+              explanation.includes('element') || 
+              explanation.includes('dot') || 
+              explanation.includes('gains')
+            ).toBe(true);
+            break;
+        }
+      });
+    });
+
+    test('should build difficulty progressively', () => {
+      const level1Puzzles = generator.staticPuzzles.filter(p => p.difficultyLevel === 1);
+      const level5Puzzles = generator.staticPuzzles.filter(p => p.difficultyLevel === 5);
+      
+      if (level1Puzzles.length > 0 && level5Puzzles.length > 0) {
+        const avgLevel1Length = level1Puzzles.reduce((sum, p) => sum + p.sequenceLength, 0) / level1Puzzles.length;
+        const avgLevel5Length = level5Puzzles.reduce((sum, p) => sum + p.sequenceLength, 0) / level5Puzzles.length;
+        
+        expect(avgLevel5Length).toBeGreaterThanOrEqual(avgLevel1Length);
+      }
+    });
+  });
+
+  describe('Edge Cases', () => {
+    test('should handle minimum sequence length', () => {
+      const puzzles = Array.from({ length: 10 }, () => generator.getRandom());
+      const minLength = Math.min(...puzzles.map(p => p.sequenceLength));
+      
+      expect(minLength).toBe(3);
+    });
+
+    test('should handle maximum sequence length', () => {
+      const puzzles = Array.from({ length: 10 }, () => generator.getRandom());
+      const maxLength = Math.max(...puzzles.map(p => p.sequenceLength));
+      
+      expect(maxLength).toBe(5);
+    });
+
+    test('should not generate duplicate correct answers in options', () => {
+      const puzzles = Array.from({ length: 20 }, () => generator.getRandom());
+      
+      puzzles.forEach(puzzle => {
+        const correctAnswer = puzzle.options[puzzle.correctAnswerIndex];
+        const occurrences = puzzle.options.filter(option => option === correctAnswer);
+        expect(occurrences).toHaveLength(1);
+      });
+    });
+
+    test('options should not contain duplicates', () => {
+      const puzzles = Array.from({ length: 20 }, () => generator.getRandom());
+      
+      puzzles.forEach(puzzle => {
+        const uniqueOptions = new Set(puzzle.options);
+        expect(uniqueOptions.size).toBe(puzzle.options.length);
+      });
+    });
+
+    test('should handle all transformation types in dynamic generation', () => {
+      const allTypes = Object.values(TransformationType);
+      const foundTypes = new Set<TransformationType>();
+      
+      // Generate many puzzles to find all types
+      for (let i = 0; i < 200 && foundTypes.size < allTypes.length; i++) {
+        const puzzle = generator.getRandom();
+        foundTypes.add(puzzle.transformationType);
+      }
+      
+      expect(foundTypes.size).toBeGreaterThanOrEqual(5); // Should find most transformation types
+    });
+  });
+
+  describe('Integration Tests', () => {
+    test('should integrate correctly with base puzzle interface', () => {
+      const puzzle = generator.getRandom();
+      
+      // Should satisfy BasePuzzle interface
+      expect(typeof puzzle.question).toBe('string');
+      expect(Array.isArray(puzzle.options)).toBe(true);
+      expect(typeof puzzle.correctAnswerIndex).toBe('number');
+      expect(typeof puzzle.explanation).toBe('string');
+      
+      // Should pass validation
+      expect(PuzzleValidator.validatePuzzle(puzzle)).toBe(true);
+    });
+
+    test('should maintain consistent state across multiple generations', () => {
+      const puzzle1 = generator.getNext();
+      const puzzle2 = generator.getNext();
+      const randomPuzzle = generator.getRandom();
+      
+      expect(PuzzleValidator.validatePuzzle(puzzle1)).toBe(true);
+      expect(PuzzleValidator.validatePuzzle(puzzle2)).toBe(true);
+      expect(PuzzleValidator.validatePuzzle(randomPuzzle)).toBe(true);
+      
+      // Should not interfere with each other
+      expect(puzzle1).not.toEqual(puzzle2);
+    });
+  });
+});

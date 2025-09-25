@@ -1,0 +1,208 @@
+name: Util - Emergency Rollback Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      rollback_type:
+        description: 'Rollback type'
+        required: true
+        type: choice
+        options:
+          - feature_flags_only
+          - previous_version
+          - emergency_disable
+      target_version:
+        description: 'Target version (if rolling back to previous version)'
+        required: false
+        type: string
+      reason:
+        description: 'Reason for rollback'
+        required: true
+        type: string
+
+jobs:
+  emergency-rollback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Feature flags rollback
+        if: inputs.rollback_type == 'feature_flags_only' || inputs.rollback_type == 'emergency_disable'
+        run: |
+          echo "🚨 Emergency rollback: Disabling all experimental features"
+          
+          # Create safe feature flag configuration
+          cat > config/feature-flags.json << 'EOF'
+          {
+            "version": "emergency-${{ github.run_number }}",
+            "lastUpdated": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "flags": {
+              "numberAnalogiesPuzzles": true,
+              "powerSurgeSystem": true,
+              "ratingPrompt": false,
+              "newLevelThemes": true,
+              "improvedScoring": true,
+              "optimizedRendering": false,
+              "aiGeneratedPuzzles": false,
+              "socialFeatures": false
+            },
+            "rolloutPercentage": {},
+            "userSegments": {
+              "early_adopters": {},
+              "power_users": {},
+              "default": {}
+            }
+          }
+          EOF
+          
+      - name: Version rollback
+        if: inputs.rollback_type == 'previous_version'
+        run: |
+          echo "🔄 Rolling back to version: ${{ inputs.target_version }}"
+          
+          if [ -z "${{ inputs.target_version }}" ]; then
+            # Get previous tag
+            TARGET=$(git describe --tags --abbrev=0 HEAD~1)
+          else
+            TARGET="${{ inputs.target_version }}"
+          fi
+          
+          echo "Rolling back to: $TARGET"
+          
+          # Revert to target version
+          git checkout $TARGET -- package.json app.json
+          
+          # Update feature flags to safe configuration
+          cat > config/feature-flags.json << 'EOF'
+          {
+            "version": "rollback-${{ github.run_number }}",
+            "lastUpdated": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "flags": {
+              "numberAnalogiesPuzzles": true,
+              "powerSurgeSystem": true,
+              "ratingPrompt": false,
+              "newLevelThemes": false,
+              "improvedScoring": true,
+              "optimizedRendering": false,
+              "aiGeneratedPuzzles": false,
+              "socialFeatures": false
+            },
+            "rolloutPercentage": {},
+            "userSegments": {
+              "early_adopters": {},
+              "power_users": {},
+              "default": {}
+            }
+          }
+          EOF
+          
+      - name: Emergency build and submit
+        if: inputs.rollback_type == 'previous_version'
+        run: |
+          echo "🚀 Creating emergency build..."
+          
+          # Install dependencies
+          npm ci
+          
+          # Setup EAS
+          npx expo install --fix
+          
+          # Build emergency versions
+          eas build --platform ios --profile production --non-interactive --no-wait
+          eas build --platform android --profile production --non-interactive --no-wait
+          
+          # Wait for builds
+          echo "⏳ Waiting for emergency builds..."
+          timeout 3600 bash -c 'until eas build:list --limit 2 --json | jq -r ".[].status" | grep -v "IN_QUEUE\|IN_PROGRESS"; do sleep 30; done'
+          
+          # Submit to stores
+          echo "📱 Emergency submission to app stores..."
+          eas submit --platform ios --latest --non-interactive
+          eas submit --platform android --latest --non-interactive
+          
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action - Emergency Rollback"
+          
+          git add config/feature-flags.json
+          if [ -n "$(git diff --staged)" ]; then
+            git commit -m "🚨 Emergency rollback: ${{ inputs.reason }}
+
+            Rollback type: ${{ inputs.rollback_type }}
+            Target version: ${{ inputs.target_version || 'N/A' }}
+            Reason: ${{ inputs.reason }}
+            
+            Automated emergency rollback triggered by: ${{ github.actor }}"
+            
+            git push origin main
+          fi
+          
+      - name: Create incident issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: issue } = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Emergency Rollback Executed - ${{ inputs.reason }}`,
+              body: `## Emergency Rollback Summary
+              
+              **Rollback Type:** ${{ inputs.rollback_type }}
+              **Target Version:** ${{ inputs.target_version || 'N/A' }}
+              **Reason:** ${{ inputs.reason }}
+              **Executed By:** ${{ github.actor }}
+              **Timestamp:** ${new Date().toISOString()}
+              
+              ## Actions Taken
+              
+              ${
+                '${{ inputs.rollback_type }}' === 'feature_flags_only' ? 
+                '- ✅ Disabled all experimental features\n- ✅ Reset feature flags to safe configuration' :
+                '${{ inputs.rollback_type }}' === 'previous_version' ?
+                '- ✅ Rolled back to previous version\n- ✅ Created emergency builds\n- ✅ Submitted to app stores' :
+                '- ✅ Emergency disable of all features\n- ✅ Set feature flags to minimal safe configuration'
+              }
+              
+              ## Next Steps
+              
+              - [ ] Monitor app performance and user feedback
+              - [ ] Investigate root cause of the issue
+              - [ ] Plan fix and gradual re-enable
+              - [ ] Document lessons learned
+              
+              ## Related Links
+              
+              - [Rollback Workflow Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+              - [Feature Flags Configuration](https://github.com/${{ github.repository }}/blob/main/config/feature-flags.json)
+              `,
+              labels: ['emergency', 'rollback', 'incident']
+            });
+            
+            console.log(`Created incident issue #${issue.number}`);
+            
+      - name: Send notification
+        run: |
+          echo "🚨 EMERGENCY ROLLBACK COMPLETED 🚨"
+          echo "Type: ${{ inputs.rollback_type }}"
+          echo "Reason: ${{ inputs.reason }}"
+          echo "Executed by: ${{ github.actor }}"
+          echo "Timestamp: $(date)"
+          echo ""
+          echo "✅ Feature flags updated"
+          echo "✅ Changes committed and pushed"
+          echo "✅ Incident issue created"
+          
+          if [ "${{ inputs.rollback_type }}" = "previous_version" ]; then
+            echo "✅ Emergency builds submitted to app stores"
+          fi

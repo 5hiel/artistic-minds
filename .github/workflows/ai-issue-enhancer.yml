@@ -1,0 +1,49 @@
+name: AI - Issue Enhancement on Label
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to enhance'
+        required: true
+        type: number
+
+jobs:
+  enhance-issue:
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    if: |
+      (contains(github.event.issue.labels.*.name, 'needs-enhancement') && !contains(github.event.issue.labels.*.name, 'fix-it')) || 
+      github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Enhance Issue with Custom Command
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Can you update the issue description only using /enhance-issue ${{ github.event.issue.number || inputs.issue_number }}
+      
+      - name: Remove needs-enhancement label
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ github.event.issue.number || inputs.issue_number }},
+              name: 'needs-enhancement'
+            });
+            console.log('Successfully removed needs-enhancement label');

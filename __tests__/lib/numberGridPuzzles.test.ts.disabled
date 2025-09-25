@@ -1,0 +1,425 @@
+import { 
+  NumberGridPuzzleGenerator, 
+  NumberGridPuzzle, 
+  GridRuleType,
+  numberGridPuzzleGenerator,
+  getNextNumberGridPuzzle,
+  generateRandomNumberGridPuzzle
+} from '../../lib/puzzles/numerical/numberGrid';
+import { PuzzleValidator } from '../../lib/core/basePuzzle';
+
+describe('NumberGridPuzzleGenerator', () => {
+  let generator: NumberGridPuzzleGenerator;
+
+  beforeEach(() => {
+    generator = new NumberGridPuzzleGenerator();
+  });
+
+  describe('Static Puzzles', () => {
+    it('should have comprehensive static puzzle collection', () => {
+      const stats = generator.getStaticCount();
+      expect(stats).toBeGreaterThanOrEqual(10); // Expecting at least 10 static puzzles
+      
+      // Log first few puzzles for verification
+      const puzzles = Array.from({ length: Math.min(5, stats) }, () => generator.getNext());
+      puzzles.forEach((puzzle, index) => {
+        console.log(`Puzzle ${index + 1}: ${puzzle.question} → Answer: ${puzzle.options[puzzle.correctAnswerIndex]}`);
+      });
+    });
+
+    it('should have valid number grid puzzle structure', () => {
+      const puzzles = Array.from({ length: 10 }, (_, i) => generator.getNext());
+      
+      puzzles.forEach(puzzle => {
+        expect(PuzzleValidator.validatePuzzle(puzzle)).toBe(true);
+        expect(puzzle.grid).toHaveLength(3); // 3x3 grid
+        expect(puzzle.grid[0]).toHaveLength(3);
+        expect(puzzle.grid[1]).toHaveLength(3);
+        expect(puzzle.grid[2]).toHaveLength(3);
+        
+        // Should have exactly one null (missing number)
+        const nullCount = puzzle.grid.flat().filter(cell => cell === null).length;
+        expect(nullCount).toBe(1);
+        
+        // Should have valid missing position
+        expect(puzzle.missingPosition).toHaveLength(2);
+        expect(puzzle.missingPosition[0]).toBeGreaterThanOrEqual(0);
+        expect(puzzle.missingPosition[0]).toBeLessThan(3);
+        expect(puzzle.missingPosition[1]).toBeGreaterThanOrEqual(0);
+        expect(puzzle.missingPosition[1]).toBeLessThan(3);
+        
+        // Missing position should correspond to null in grid
+        const [row, col] = puzzle.missingPosition;
+        expect(puzzle.grid[row][col]).toBeNull();
+      });
+    });
+
+    it('should cover all rule types', () => {
+      const puzzles = Array.from({ length: 20 }, () => generator.getNext());
+      const ruleTypes = puzzles.map(p => p.ruleType);
+      const uniqueTypes = new Set(ruleTypes);
+      
+      expect(uniqueTypes.size).toBeGreaterThanOrEqual(4); // Should have variety
+      expect(uniqueTypes.has(GridRuleType.ROW_COLUMN_ARITHMETIC)).toBe(true);
+      expect(uniqueTypes.has(GridRuleType.MAGIC_SQUARE)).toBe(true);
+    });
+
+    it('should have different difficulty levels', () => {
+      const puzzles = Array.from({ length: 10 }, () => generator.getNext());
+      const difficulties = puzzles.map(p => p.difficultyLevel);
+      const uniqueDifficulties = new Set(difficulties);
+      
+      expect(uniqueDifficulties.size).toBeGreaterThan(1); // Should have variety
+      difficulties.forEach(level => {
+        expect([1, 2, 3, 4, 5]).toContain(level);
+      });
+    });
+  });
+
+  describe('Static Puzzle Content Validation', () => {
+    it('arithmetic grid puzzle (2×3 pattern)', () => {
+      // Find an arithmetic puzzle in the static collection
+      let arithmeticPuzzle: NumberGridPuzzle | null = null;
+      for (let i = 0; i < 20; i++) {
+        const puzzle = generator.getNext();
+        if (puzzle.ruleType === GridRuleType.ROW_COLUMN_ARITHMETIC) {
+          arithmeticPuzzle = puzzle;
+          break;
+        }
+      }
+      
+      expect(arithmeticPuzzle).not.toBeNull();
+      expect(arithmeticPuzzle!.ruleType).toBe(GridRuleType.ROW_COLUMN_ARITHMETIC);
+      expect(arithmeticPuzzle!.rule).toMatch(/arithmetic|multiplication|addition/i);
+    });
+
+    it('magic square puzzle (sum = 15)', () => {
+      // Find a magic square puzzle
+      let magicPuzzle: NumberGridPuzzle | null = null;
+      for (let i = 0; i < 20; i++) {
+        const puzzle = generator.getNext();
+        if (puzzle.ruleType === GridRuleType.MAGIC_SQUARE) {
+          magicPuzzle = puzzle;
+          break;
+        }
+      }
+      
+      expect(magicPuzzle).not.toBeNull();
+      expect(magicPuzzle!.ruleType).toBe(GridRuleType.MAGIC_SQUARE);
+      expect(magicPuzzle!.expectedSum).toBe(15);
+      expect(magicPuzzle!.explanation).toMatch(/magic square|sum to 15/i);
+    });
+
+    it('cross logic puzzle (center relates to neighbors)', () => {
+      let crossPuzzle: NumberGridPuzzle | null = null;
+      for (let i = 0; i < 20; i++) {
+        const puzzle = generator.getNext();
+        if (puzzle.ruleType === GridRuleType.CROSS_LOGIC) {
+          crossPuzzle = puzzle;
+          break;
+        }
+      }
+      
+      expect(crossPuzzle).not.toBeNull();
+      expect(crossPuzzle!.ruleType).toBe(GridRuleType.CROSS_LOGIC);
+      expect(crossPuzzle!.rule).toMatch(/center|average|neighbors/i);
+    });
+  });
+
+  describe('Generator Methods', () => {
+    it('getNext() should cycle through static puzzles', () => {
+      const first = generator.getNext();
+      const puzzles = [first];
+      
+      // Generate more puzzles until we cycle back
+      let current = generator.getNext();
+      while (current.question !== first.question && puzzles.length < 20) {
+        puzzles.push(current);
+        current = generator.getNext();
+      }
+      
+      expect(puzzles.length).toBeGreaterThan(1);
+    });
+
+    it('getNext() should wrap around after reaching end', () => {
+      const totalStatic = generator.getStaticCount();
+      const firstPuzzle = generator.getNext();
+      
+      // Generate all static puzzles
+      for (let i = 1; i < totalStatic; i++) {
+        generator.getNext();
+      }
+      
+      // Next should wrap to first
+      const wrappedPuzzle = generator.getNext();
+      expect(wrappedPuzzle.question).toBe(firstPuzzle.question);
+    });
+
+    it('getStaticCount() should return correct count', () => {
+      const count = generator.getStaticCount();
+      expect(count).toBeGreaterThan(0);
+      expect(typeof count).toBe('number');
+    });
+
+    it('resetRotation() should reset to first puzzle', () => {
+      const firstPuzzle = generator.getNext();
+      generator.getNext(); // Move to second
+      generator.getNext(); // Move to third
+      
+      generator.resetRotation();
+      const resetPuzzle = generator.getNext();
+      expect(resetPuzzle.question).toBe(firstPuzzle.question);
+    });
+  });
+
+  describe('Dynamic Puzzle Generation', () => {
+    it('getRandom() should generate valid puzzles', () => {
+      for (let i = 0; i < 20; i++) {
+        const puzzle = generator.getRandom();
+        expect(PuzzleValidator.validatePuzzle(puzzle)).toBe(true);
+        expect(puzzle.grid).toHaveLength(3);
+        expect(puzzle.options).toHaveLength(4);
+        expect(puzzle.correctAnswerIndex).toBeGreaterThanOrEqual(0);
+        expect(puzzle.correctAnswerIndex).toBeLessThan(4);
+        expect(puzzle.ruleType).toBeDefined();
+        expect([1, 2, 3, 4, 5]).toContain(puzzle.difficultyLevel);
+        
+        // Verify answer is correct option
+        const answer = puzzle.options[puzzle.correctAnswerIndex];
+        expect(answer).toBeDefined();
+        expect(answer).not.toBe('');
+        
+        // Grid should have exactly one empty string  
+        const emptyCount = puzzle.grid.flat().filter(cell => cell === '').length;
+        expect(emptyCount).toBe(1);
+        
+        // Number grid should have exactly one null
+        const nullCount = puzzle.numberGrid.flat().filter(cell => cell === null).length;
+        expect(nullCount).toBe(1);
+        
+        console.log(`Dynamic Puzzle ${i + 1}: ${puzzle.question} → ${answer} (${puzzle.ruleType}, Level ${puzzle.difficultyLevel})`);
+      }
+    });
+
+    it('should generate different rule types with proper distribution', () => {
+      const puzzles = Array.from({ length: 30 }, () => generator.getRandom());
+      const ruleTypeCounts: Record<string, number> = {};
+      
+      puzzles.forEach(puzzle => {
+        ruleTypeCounts[puzzle.ruleType] = (ruleTypeCounts[puzzle.ruleType] || 0) + 1;
+      });
+      
+      // Should have at least 3 different rule types
+      expect(Object.keys(ruleTypeCounts).length).toBeGreaterThanOrEqual(3);
+      
+      console.log('Rule Type Distribution:', Object.entries(ruleTypeCounts).map(([type, count]) => `${type}: ${Math.round(count/30*100)}%`).join(', '));
+    });
+
+    it('should generate different difficulty levels', () => {
+      const puzzles = Array.from({ length: 20 }, () => generator.getRandom());
+      const difficulties = puzzles.map(p => p.difficultyLevel);
+      const uniqueDifficulties = new Set(difficulties);
+      
+      expect(uniqueDifficulties.size).toBeGreaterThanOrEqual(3); // Should have variety
+    });
+
+    it('should generate arithmetic grids correctly', () => {
+      // Test arithmetic grid generation multiple times
+      for (let i = 0; i < 5; i++) {
+        const puzzle = generator.getRandom();
+        if (puzzle.ruleType === GridRuleType.ROW_COLUMN_ARITHMETIC) {
+          expect(puzzle.grid).toHaveLength(3);
+          expect(puzzle.rule).toMatch(/row|column|arithmetic|addition|multiplication/i);
+          
+          // All non-null values should be positive integers
+          puzzle.numberGrid.flat().forEach(cell => {
+            if (cell !== null) {
+              expect(Number.isInteger(cell)).toBe(true);
+              expect(cell).toBeGreaterThan(0);
+            }
+          });
+        }
+      }
+    });
+
+    it('should generate magic squares correctly', () => {
+      // Look for magic square puzzles
+      for (let i = 0; i < 10; i++) {
+        const puzzle = generator.getRandom();
+        if (puzzle.ruleType === GridRuleType.MAGIC_SQUARE) {
+          expect(puzzle.expectedSum).toBeDefined();
+          expect(puzzle.expectedSum).toBeGreaterThan(0);
+          expect(puzzle.explanation).toMatch(/magic square|sum/i);
+        }
+      }
+    });
+  });
+
+  describe('Singleton Instance', () => {
+    it('numberGridPuzzleGenerator should be properly instantiated', () => {
+      expect(numberGridPuzzleGenerator).toBeInstanceOf(NumberGridPuzzleGenerator);
+      expect(numberGridPuzzleGenerator.getStaticCount()).toBeGreaterThan(0);
+    });
+
+    it('singleton methods should work correctly', () => {
+      const puzzle1 = numberGridPuzzleGenerator.getNext();
+      const puzzle2 = numberGridPuzzleGenerator.getRandom();
+      
+      expect(PuzzleValidator.validatePuzzle(puzzle1)).toBe(true);
+      expect(PuzzleValidator.validatePuzzle(puzzle2)).toBe(true);
+    });
+  });
+
+  describe('Educational Value', () => {
+    it('explanations should provide clear mathematical reasoning', () => {
+      const puzzles = Array.from({ length: 10 }, () => generator.getRandom());
+      
+      puzzles.forEach(puzzle => {
+        expect(puzzle.explanation).toBeDefined();
+        expect(puzzle.explanation.length).toBeGreaterThan(10);
+        expect(puzzle.rule).toBeDefined();
+        expect(puzzle.rule.length).toBeGreaterThan(5);
+        
+        // Check for mathematical terms - explanations should be meaningful
+        const hasNumbers = /\d/.test(puzzle.explanation);
+        const hasMathTerms = /sum|add|multiply|average|pattern|rule|equation|progressive|center|magic|grid/i.test(puzzle.explanation);
+        const hasReasonableLength = puzzle.explanation.length > 15;
+        expect(hasNumbers || hasMathTerms || hasReasonableLength).toBe(true);
+      });
+    });
+
+    it('should build difficulty progressively', () => {
+      const easyPuzzles = Array.from({ length: 10 }, () => generator.getRandom()).filter(p => p.difficultyLevel <= 2);
+      const hardPuzzles = Array.from({ length: 10 }, () => generator.getRandom()).filter(p => p.difficultyLevel >= 4);
+      
+      // Hard puzzles should generally use more complex rule types
+      const hardRuleTypes = hardPuzzles.map(p => p.ruleType);
+      const complexRules = [GridRuleType.PROGRESSIVE_OPERATIONS, GridRuleType.COMBINATION_RULES, GridRuleType.MAGIC_SQUARE];
+      
+      expect(hardRuleTypes.some(rule => complexRules.includes(rule))).toBe(true);
+    });
+  });
+
+  describe('Edge Cases', () => {
+    it('should handle all grid positions for missing numbers', () => {
+      const puzzles = Array.from({ length: 20 }, () => generator.getRandom());
+      const positions = puzzles.map(p => `${p.missingPosition[0]},${p.missingPosition[1]}`);
+      const uniquePositions = new Set(positions);
+      
+      // Should have variety in missing positions
+      expect(uniquePositions.size).toBeGreaterThan(3);
+    });
+
+    it('should not generate duplicate correct answers in options', () => {
+      const puzzles = Array.from({ length: 50 }, () => generator.getRandom());
+      
+      puzzles.forEach(puzzle => {
+        const correctAnswer = puzzle.options[puzzle.correctAnswerIndex];
+        const occurrences = puzzle.options.filter(option => option === correctAnswer);
+        expect(occurrences).toHaveLength(1); // Should appear exactly once
+      });
+    });
+
+    it('options should not contain duplicates', () => {
+      const puzzles = Array.from({ length: 20 }, () => generator.getRandom());
+      
+      puzzles.forEach(puzzle => {
+        const uniqueOptions = new Set(puzzle.options);
+        expect(uniqueOptions.size).toBe(4); // All options should be unique
+      });
+    });
+
+    it('should generate positive integer answers only', () => {
+      const puzzles = Array.from({ length: 30 }, () => generator.getRandom());
+      
+      puzzles.forEach(puzzle => {
+        puzzle.options.forEach(option => {
+          const num = parseInt(option);
+          expect(Number.isInteger(num)).toBe(true);
+          expect(num).toBeGreaterThan(0);
+        });
+      });
+    });
+
+    it('should handle all rule types in dynamic generation', () => {
+      const ruleTypes = Object.values(GridRuleType);
+      const generatedRules = new Set<GridRuleType>();
+      
+      // Generate many puzzles to ensure all rule types appear
+      for (let i = 0; i < 100; i++) {
+        const puzzle = generator.getRandom();
+        generatedRules.add(puzzle.ruleType);
+      }
+      
+      // Should generate at least most rule types
+      expect(generatedRules.size).toBeGreaterThanOrEqual(ruleTypes.length - 1);
+    });
+  });
+
+  describe('Integration Tests', () => {
+    it('should integrate correctly with base puzzle interface', () => {
+      const puzzle = generator.getRandom();
+      
+      // Test BasePuzzle interface compliance
+      expect(puzzle.question).toBeDefined();
+      expect(puzzle.options).toHaveLength(4);
+      expect(puzzle.correctAnswerIndex).toBeGreaterThanOrEqual(0);
+      expect(puzzle.correctAnswerIndex).toBeLessThan(4);
+      expect(puzzle.explanation).toBeDefined();
+      
+      // Test NumberGridPuzzle specific properties
+      expect(puzzle.grid).toBeDefined();
+      expect(puzzle.numberGrid).toBeDefined();
+      expect(puzzle.ruleType).toBeDefined();
+      expect(puzzle.difficultyLevel).toBeDefined();
+      expect(puzzle.missingPosition).toBeDefined();
+      expect(puzzle.rule).toBeDefined();
+    });
+
+    it('should maintain consistent state across multiple generations', () => {
+      const initialState = generator.getStaticCount();
+      
+      // Generate multiple puzzles
+      for (let i = 0; i < 10; i++) {
+        const puzzle = generator.getRandom();
+        expect(PuzzleValidator.validatePuzzle(puzzle)).toBe(true);
+      }
+      
+      // State should remain consistent
+      expect(generator.getStaticCount()).toBe(initialState);
+    });
+  });
+});
+
+describe('Legacy Functions', () => {
+  describe('getNextNumberGridPuzzle', () => {
+    it('should generate valid puzzles', () => {
+      const puzzle = getNextNumberGridPuzzle();
+      expect(PuzzleValidator.validatePuzzle(puzzle)).toBe(true);
+      expect(puzzle.ruleType).toBeDefined();
+      expect(puzzle.grid).toBeDefined();
+    });
+  });
+
+  describe('generateRandomNumberGridPuzzle', () => {
+    it('should generate valid random puzzles', () => {
+      const puzzle = generateRandomNumberGridPuzzle();
+      expect(PuzzleValidator.validatePuzzle(puzzle)).toBe(true);
+      expect(puzzle.ruleType).toBeDefined();
+      expect(puzzle.options[puzzle.correctAnswerIndex]).toBeDefined();
+    });
+
+    it('should generate variety of puzzles', () => {
+      const puzzles = Array.from({ length: 10 }, () => generateRandomNumberGridPuzzle());
+      const questions = puzzles.map(p => p.question);
+      const ruleTypes = puzzles.map(p => p.ruleType);
+      
+      // Should have some variety
+      const uniqueQuestions = new Set(questions);
+      const uniqueRuleTypes = new Set(ruleTypes);
+      
+      expect(uniqueQuestions.size).toBeGreaterThan(1);
+      expect(uniqueRuleTypes.size).toBeGreaterThan(1);
+    });
+  });
+});

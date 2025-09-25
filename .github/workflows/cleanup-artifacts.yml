@@ -1,0 +1,64 @@
+name: Cleanup PR Screenshots
+on:
+  pull_request:
+    types: [closed]
+    
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.repository == '5hiel/gifted-minds'
+    steps:
+      - name: Delete PR Screenshots
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          script: |
+            const prNumber = context.payload.number;
+            const screenshotPath = `screenshots/gifted-minds/pr-${prNumber}`;
+            
+            console.log(`🧹 Cleaning up screenshots for PR #${prNumber}...`);
+            
+            try {
+              // Get all files in the PR screenshot folder
+              const { data: contents } = await github.rest.repos.getContent({
+                owner: '5hiel',
+                repo: 'iOS-pages',
+                path: screenshotPath
+              });
+              
+              console.log(`Found ${contents.length} screenshots to delete`);
+              
+              // Delete each file in the folder
+              for (const file of contents) {
+                try {
+                  console.log(`Deleting ${file.name}...`);
+                  
+                  await github.rest.repos.deleteFile({
+                    owner: '5hiel',
+                    repo: 'iOS-pages',
+                    path: file.path,
+                    message: `Cleanup: Delete ${file.name} for closed PR #${prNumber}`,
+                    sha: file.sha,
+                    committer: {
+                      name: 'github-actions[bot]',
+                      email: 'github-actions[bot]@users.noreply.github.com'
+                    }
+                  });
+                  
+                  console.log(`✅ Deleted ${file.name}`);
+                } catch (deleteError) {
+                  console.log(`Failed to delete ${file.name}:`, deleteError);
+                }
+              }
+              
+              console.log(`🎉 Successfully cleaned up all screenshots for PR #${prNumber}`);
+              
+            } catch (error) {
+              if (error.status === 404) {
+                console.log(`📝 No screenshots found for PR #${prNumber} (folder doesn't exist)`);
+              } else {
+                console.log(`❌ Error cleaning up screenshots for PR #${prNumber}:`, error);
+                throw error;
+              }
+            }

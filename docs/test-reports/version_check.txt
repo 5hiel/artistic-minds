@@ -1,0 +1,22 @@
+🔍 Checking App Store review status...
+
+📱 App Store Versions:
+
+📦 Version 1.0.5 (Latest)
+   Status: 📝 Prepare for submission
+   Created: 9/15/2025, 2:47:42 PM
+
+📦 Version 1.0.2
+   Status: 🎉 Live on App Store
+   Created: 9/13/2025, 11:02:46 PM
+
+📦 Version 1.0.1
+   Status: 🎉 Live on App Store
+   Created: 9/2/2025, 9:10:38 PM
+
+📦 Version 1.0
+   Status: 🎉 Live on App Store
+   Created: 8/26/2025, 10:36:17 PM
+
+🎯 Current status: 📝 Prepare for submission
+📋 Latest version found: 1.0.5

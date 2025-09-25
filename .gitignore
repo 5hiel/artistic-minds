@@ -1,0 +1,126 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+node_modules/
+
+# Jest
+.jest-cache/
+.jest-cache-personas/
+coverage/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env
+.env*.local
+
+# logs and build tracking
+logs/
+*.log
+
+# Analytics and database files
+analytics/*.db-shm
+analytics/*.db-wal
+
+# typescript
+*.tsbuildinfo
+
+app-example
+
+# Android
+android/
+*.apk
+*.keystore
+*.gradle
+.gradle/
+local.properties
+
+# iOS
+ios/
+*.xcodeproj/
+*.xcworkspace/
+*.xcuserstate
+*.xcuserdata/
+DerivedData/
+build/
+Pods/
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+
+# Persona testing reports and results
+*_persona_report.md
+*persona_analysis*.md
+omi-*.md
+results/
+
+# Workflow analysis and reports (auto-generated)
+*-analysis-report.json
+*analysis-report.json
+bug-analysis-report.json
+coverage-analysis-report.json
+issue-triage-report.json
+*-report.json
+*_output.txt
+analysis_output.txt
+triage_output.txt
+
+# Temporary release files
+release-notes-*.md
+update-release-notes.js
+
+# Temporary analysis and documentation
+github-actions-cost-analysis.md
+reviews.json
+
+# Simulation and testing output
+simulation_output/
+<rootDir>/
+
+# Unused development directories
+dev-tools/
+tools/
+screenshots/*/
+
+# Additional cache directories
+.jest-cache-*/
+
+# System and temporary files
+*.tmp
+*.temp
+*~
+.#*
+\#*#
+*.swp
+*.swo
+
+# Editor backup files
+*.bak
+*.orig

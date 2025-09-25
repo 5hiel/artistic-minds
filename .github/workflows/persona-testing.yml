@@ -1,0 +1,543 @@
+name: 🎭 Persona Testing - Adaptive Engine Analysis
+
+on:
+  # Manual trigger with configurable options
+  workflow_dispatch:
+    inputs:
+      persona:
+        description: 'Persona to test'
+        required: true
+        default: 'ira'
+        type: choice
+        options:
+          - ira
+          - omi
+          - mumu
+          - ma
+          - all
+      preset:
+        description: 'Test configuration preset'
+        required: true
+        default: 'quick'
+        type: choice
+        options:
+          - quick
+          - standard
+          - comprehensive
+          - custom
+      total_chunks:
+        description: 'Number of chunks (for custom preset)'
+        required: false
+        default: '5'
+        type: string
+      puzzles_per_chunk:
+        description: 'Puzzles per chunk (for custom preset)'
+        required: false
+        default: '10'
+        type: string
+      session_id:
+        description: 'Custom session ID (optional)'
+        required: false
+        type: string
+      generate_report:
+        description: 'Generate comprehensive summary report'
+        required: false
+        default: 'true'
+        type: string
+      upload_artifacts:
+        description: 'Upload test results and analytics'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  persona-analysis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120  # Allow up to 2 hours for comprehensive testing
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+      CI: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Clear analytics database
+        run: |
+          echo "🧹 Cleaning up any existing analytics database..."
+          rm -f analytics/test_analytics.db analytics/test_analytics.db-shm analytics/test_analytics.db-wal
+          echo "✅ Analytics database cleared"
+
+      - name: Validate persona input
+        run: |
+          VALID_PERSONAS="ira omi mumu ma all"
+          if [[ ! " $VALID_PERSONAS " =~ " ${{ inputs.persona }} " ]]; then
+            echo "❌ Invalid persona: ${{ inputs.persona }}"
+            echo "Valid personas: $VALID_PERSONAS"
+            exit 1
+          fi
+          echo "✅ Persona validation passed: ${{ inputs.persona }}"
+
+      - name: Set test configuration
+        id: config
+        run: |
+          # Set defaults based on preset
+          case "${{ inputs.preset }}" in
+            "quick")
+              CHUNKS=5
+              PUZZLES=10
+              TIMEOUT=600000
+              ;;
+            "standard")
+              CHUNKS=10
+              PUZZLES=10
+              TIMEOUT=1200000
+              ;;
+            "comprehensive")
+              CHUNKS=50
+              PUZZLES=8
+              TIMEOUT=2400000
+              ;;
+            "custom")
+              CHUNKS=${{ inputs.total_chunks }}
+              PUZZLES=${{ inputs.puzzles_per_chunk }}
+              # Calculate timeout: chunks * puzzles * 2 seconds * 1000ms + 60s buffer
+              TIMEOUT=$((${CHUNKS} * ${PUZZLES} * 2000 + 60000))
+              ;;
+          esac
+
+          # Generate session ID if not provided
+          if [[ -z "${{ inputs.session_id }}" ]]; then
+            TIMESTAMP=$(date +%s)
+            SESSION_ID="github_${{ inputs.persona }}_${TIMESTAMP}"
+          else
+            SESSION_ID="${{ inputs.session_id }}"
+          fi
+
+          echo "chunks=${CHUNKS}" >> $GITHUB_OUTPUT
+          echo "puzzles=${PUZZLES}" >> $GITHUB_OUTPUT
+          echo "timeout=${TIMEOUT}" >> $GITHUB_OUTPUT
+          echo "session_id=${SESSION_ID}" >> $GITHUB_OUTPUT
+
+          echo "📊 Test Configuration:"
+          echo "  Persona(s): ${{ inputs.persona }}"
+          echo "  Preset: ${{ inputs.preset }}"
+          echo "  Chunks: ${CHUNKS}"
+          echo "  Puzzles per chunk: ${PUZZLES}"
+          echo "  Total puzzles: $((${CHUNKS} * ${PUZZLES}))"
+          echo "  Session ID: ${SESSION_ID}"
+          echo "  Timeout: ${TIMEOUT}ms"
+
+      - name: Run single persona test
+        if: inputs.persona != 'all'
+        run: |
+          echo "🎭 Running single persona test: ${{ inputs.persona }}"
+
+          # Set environment variables
+          export PRESET="${{ inputs.preset }}"
+          export PERSONA="${{ inputs.persona }}"
+          export SESSION_ID="${{ steps.config.outputs.session_id }}"
+
+          # Add custom configuration for custom preset
+          if [[ "${{ inputs.preset }}" == "custom" ]]; then
+            export TOTAL_CHUNKS="${{ steps.config.outputs.chunks }}"
+            export PUZZLES_PER_CHUNK="${{ steps.config.outputs.puzzles }}"
+          fi
+
+          # Run the test with output capture
+          npm run test:personas:enhanced -- \
+            --testNamePattern="Enhanced configurable" \
+            --testTimeout=${{ steps.config.outputs.timeout }} \
+            --verbose 2>&1 | tee persona_test_output.log
+        continue-on-error: true
+
+      - name: Run all personas test
+        if: inputs.persona == 'all'
+        run: |
+          echo "🎭 Running all personas sequentially"
+
+          PERSONAS=("ira" "omi" "mumu" "ma")
+          SUCCESS_COUNT=0
+          TOTAL_COUNT=${#PERSONAS[@]}
+
+          for persona in "${PERSONAS[@]}"; do
+            echo "🔄 Testing persona: ${persona}"
+
+            # Set environment variables for each persona
+            export PRESET="${{ inputs.preset }}"
+            export PERSONA="${persona}"
+            export SESSION_ID="${{ steps.config.outputs.session_id }}_${persona}"
+
+            # Add custom configuration for custom preset
+            if [[ "${{ inputs.preset }}" == "custom" ]]; then
+              export TOTAL_CHUNKS="${{ steps.config.outputs.chunks }}"
+              export PUZZLES_PER_CHUNK="${{ steps.config.outputs.puzzles }}"
+            fi
+
+            echo "📊 Running ${persona} with session ID: ${SESSION_ID}"
+
+            # Run the test with output capture
+            if npm run test:personas:enhanced -- \
+                --testNamePattern="Enhanced configurable" \
+                --testTimeout=${{ steps.config.outputs.timeout }} \
+                --verbose 2>&1 | tee "persona_${persona}_output.log"; then
+              echo "✅ ${persona} test completed successfully"
+              SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+            else
+              echo "❌ ${persona} test failed"
+            fi
+
+            # Brief pause between personas
+            sleep 10
+          done
+
+          echo "📊 All personas test summary:"
+          echo "  Successful: ${SUCCESS_COUNT}/${TOTAL_COUNT}"
+          echo "  Failed: $((${TOTAL_COUNT} - ${SUCCESS_COUNT}))/${TOTAL_COUNT}"
+
+          # Create combined output log
+          cat persona_*_output.log > persona_test_output.log
+        continue-on-error: true
+
+      - name: Extract test results
+        if: always()
+        run: |
+          echo "📊 Extracting test results from output logs..."
+
+          # Create results directory
+          mkdir -p test_results
+
+          # Extract key metrics from test output
+          if [[ -f "persona_test_output.log" ]]; then
+            echo "🔍 Found test output, extracting results..."
+
+            # Extract tabular reports from console output
+            grep -A 100 "Evolution: Chunks as Columns" persona_test_output.log > test_results/tabular_report.txt || echo "No tabular report found"
+
+            # Extract session summaries from console output
+            grep -A 20 "SESSION SUMMARY" persona_test_output.log > test_results/session_summary.txt || echo "No session summary found"
+
+            # Extract completion messages
+            grep "ANALYSIS COMPLETE" persona_test_output.log > test_results/completion_status.txt || echo "No completion status found"
+
+            # Extract error messages
+            grep -i "error\|failed\|timeout" persona_test_output.log > test_results/errors.txt || echo "No errors found"
+
+            # Create a summary report
+            cat > test_results/workflow_summary.md << EOF
+          # Persona Testing Results
+
+          **Workflow Run**: ${{ github.run_number }}
+          **Trigger**: Manual dispatch
+          **Persona(s)**: ${{ inputs.persona }}
+          **Preset**: ${{ inputs.preset }}
+          **Configuration**: ${{ steps.config.outputs.chunks }} chunks × ${{ steps.config.outputs.puzzles }} puzzles
+          **Session ID**: ${{ steps.config.outputs.session_id }}
+          **Timestamp**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+          ## Test Execution
+
+          - **Total puzzles**: $((${{ steps.config.outputs.chunks }} * ${{ steps.config.outputs.puzzles }}))
+          - **Expected duration**: ~$((${{ steps.config.outputs.chunks }} * ${{ steps.config.outputs.puzzles }} / 10)) minutes
+          - **Timeout setting**: ${{ steps.config.outputs.timeout }}ms
+
+          ## Results
+
+          EOF
+
+            # Check if test completed successfully
+            if grep -q "ANALYSIS COMPLETE" persona_test_output.log; then
+              echo "✅ **Test Status**: COMPLETED" >> test_results/workflow_summary.md
+            else
+              echo "❌ **Test Status**: FAILED OR INCOMPLETE" >> test_results/workflow_summary.md
+            fi
+
+            # Add analytics file paths if they exist
+            if [[ -f "analytics/test_analytics.db" ]]; then
+              echo "📊 **Analytics Database**: Available ($(stat -f%z analytics/test_analytics.db 2>/dev/null || stat -c%s analytics/test_analytics.db) bytes)" >> test_results/workflow_summary.md
+            fi
+
+            echo "✅ Test results extracted successfully"
+          else
+            echo "⚠️ No test output log found, creating minimal report"
+            echo "Test execution may have failed early" > test_results/workflow_summary.md
+          fi
+
+      - name: Generate comprehensive report
+        if: inputs.generate_report && always()
+        run: |
+          echo "📋 Generating comprehensive analysis report..."
+
+          # Display key distributions directly from database for immediate review
+          echo "📊 === PUZZLE TYPE & DIFFICULTY DISTRIBUTIONS ==="
+          echo ""
+
+          # Check if analytics database exists
+          if [[ -f "analytics/test_analytics.db" ]]; then
+            echo "🧩 PUZZLE TYPE BREAKDOWN"
+            sqlite3 analytics/test_analytics.db << 'EOF'
+          .headers on
+          .mode column
+          .width 15 8 12 12
+          SELECT puzzle_type, COUNT(*) as count,
+                 printf('%.1f%%', AVG(CASE WHEN success = 1 THEN 100.0 ELSE 0.0 END)) as success_rate,
+                 printf('%.2f', AVG(difficulty)) as avg_difficulty
+          FROM puzzle_analytics
+          GROUP BY puzzle_type ORDER BY count DESC;
+          EOF
+            echo ""
+
+            echo "📈 DIFFICULTY DISTRIBUTION"
+            sqlite3 analytics/test_analytics.db << 'EOF'
+          .headers on
+          .mode column
+          .width 15 8 12
+          SELECT
+              CASE
+                  WHEN difficulty < 0.4 THEN 'EASY'
+                  WHEN difficulty < 0.7 THEN 'MEDIUM'
+                  ELSE 'HARD'
+              END as difficulty_level,
+              COUNT(*) as count,
+              printf('%.1f%%', COUNT(*) * 100.0 / (SELECT COUNT(*) FROM puzzle_analytics)) as percentage
+          FROM puzzle_analytics
+          GROUP BY difficulty_level;
+          EOF
+            echo ""
+
+            echo "🏆 CHUNK PROGRESSION"
+            sqlite3 analytics/test_analytics.db << 'EOF'
+          .headers on
+          .mode column
+          .width 8 8 12 12
+          SELECT chunk_number, COUNT(*) as puzzles,
+                 printf('%.1f%%', AVG(CASE WHEN success = 1 THEN 100.0 ELSE 0.0 END)) as accuracy,
+                 printf('%.2f', AVG(difficulty)) as avg_difficulty
+          FROM puzzle_analytics
+          GROUP BY chunk_number ORDER BY chunk_number;
+          EOF
+            echo ""
+
+            echo "📊 CHUNK-BY-CHUNK PUZZLE TYPE DISTRIBUTION"
+            sqlite3 analytics/test_analytics.db << 'EOF'
+          .headers on
+          .mode column
+          .width 8 15 6 8
+          SELECT chunk_number, puzzle_type, COUNT(*) as count,
+                 printf('%.1f%%', (COUNT(*) * 100.0) / SUM(COUNT(*)) OVER (PARTITION BY chunk_number)) as percentage
+          FROM puzzle_analytics
+          GROUP BY chunk_number, puzzle_type
+          ORDER BY chunk_number, count DESC;
+          EOF
+            echo ""
+          else
+            echo "❌ Analytics database not found - distributions unavailable"
+          fi
+
+          echo "📊 === END DISTRIBUTIONS ==="
+          echo ""
+
+          # Create comprehensive report directory
+          mkdir -p comprehensive_report
+
+          # Check for analytics database
+          if [[ -f "analytics/test_analytics.db" ]]; then
+            echo "📊 Analytics database found, generating database reports..."
+
+            # Generate session overview
+            sqlite3 analytics/test_analytics.db << 'EOF' > comprehensive_report/session_overview.txt
+          .headers on
+          .mode column
+          SELECT 'Database Analysis Report' as report_title;
+          SELECT '========================' as separator;
+          SELECT session_id, persona, total_chunks, puzzles_per_chunk, started_at
+          FROM test_sessions ORDER BY started_at DESC LIMIT 10;
+          EOF
+
+            # Generate puzzle type analysis
+            sqlite3 analytics/test_analytics.db << 'EOF' > comprehensive_report/puzzle_analysis.txt
+          .headers on
+          .mode column
+          SELECT puzzle_type, COUNT(*) as total_puzzles,
+                 printf('%.1f%%', AVG(CASE WHEN success = 1 THEN 100.0 ELSE 0.0 END)) as success_rate,
+                 printf('%.2f', AVG(difficulty)) as avg_difficulty
+          FROM puzzle_analytics
+          GROUP BY puzzle_type
+          ORDER BY total_puzzles DESC;
+          EOF
+
+            # Generate chunk progression analysis
+            sqlite3 analytics/test_analytics.db << 'EOF' > comprehensive_report/chunk_progression.txt
+          .headers on
+          .mode column
+          SELECT chunk_number, COUNT(*) as puzzles_solved,
+                 printf('%.1f%%', AVG(CASE WHEN success = 1 THEN 100.0 ELSE 0.0 END)) as accuracy,
+                 printf('%.2f', AVG(difficulty)) as avg_difficulty
+          FROM puzzle_analytics
+          GROUP BY chunk_number
+          ORDER BY chunk_number;
+          EOF
+
+            # Generate detailed chunk-by-chunk puzzle type distribution
+            sqlite3 analytics/test_analytics.db << 'EOF' > comprehensive_report/chunk_puzzle_type_distribution.txt
+          .headers on
+          .mode column
+          SELECT 'Chunk-by-Chunk Puzzle Type Distribution' as title;
+          SELECT chunk_number, puzzle_type, COUNT(*) as count,
+                 printf('%.1f%%', (COUNT(*) * 100.0) / SUM(COUNT(*)) OVER (PARTITION BY chunk_number)) as percentage
+          FROM puzzle_analytics
+          GROUP BY chunk_number, puzzle_type
+          ORDER BY chunk_number, count DESC;
+          EOF
+
+            # Generate detailed chunk-by-chunk difficulty distribution
+            sqlite3 analytics/test_analytics.db << 'EOF' > comprehensive_report/chunk_difficulty_distribution.txt
+          .headers on
+          .mode column
+          SELECT 'Chunk-by-Chunk Difficulty Distribution' as title;
+          SELECT chunk_number,
+                 CASE
+                   WHEN difficulty < 0.4 THEN 'easy'
+                   WHEN difficulty < 0.7 THEN 'medium'
+                   ELSE 'hard'
+                 END as difficulty_level,
+                 COUNT(*) as count,
+                 printf('%.1f%%', (COUNT(*) * 100.0) / SUM(COUNT(*)) OVER (PARTITION BY chunk_number)) as percentage
+          FROM puzzle_analytics
+          GROUP BY chunk_number, difficulty_level
+          ORDER BY chunk_number, difficulty_level;
+          EOF
+
+            echo "✅ Database analysis reports generated"
+          else
+            echo "⚠️ No analytics database found"
+          fi
+
+          # Copy main test output
+          if [[ -f "persona_test_output.log" ]]; then
+            cp persona_test_output.log comprehensive_report/
+            echo "✅ Test output copied to comprehensive report"
+          fi
+
+          # Create index file
+          cat > comprehensive_report/README.md << 'EOF'
+          # Persona Testing Comprehensive Report
+
+          Generated from GitHub Actions workflow run
+
+          ## Contents
+
+          - **workflow_summary.md**: High-level test execution summary
+          - **persona_test_output.log**: Complete test execution log
+          - **session_overview.txt**: Database session analysis
+          - **puzzle_analysis.txt**: Puzzle type performance breakdown
+          - **chunk_progression.txt**: Chunk-by-chunk progression analysis
+          - **chunk_puzzle_type_distribution.txt**: Detailed puzzle type distribution per chunk
+          - **chunk_difficulty_distribution.txt**: Detailed difficulty distribution per chunk
+
+          ## Usage
+
+          This report provides comprehensive analysis of persona testing including:
+          - Test execution status and timing
+          - Puzzle type distribution and success rates
+          - Adaptive engine behavior across chunks
+          - Database analytics and performance metrics
+          EOF
+
+      - name: Upload test artifacts
+        if: inputs.upload_artifacts && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: persona-test-results-${{ inputs.persona }}-${{ inputs.preset }}-${{ github.run_number }}
+          path: |
+            test_results/
+            comprehensive_report/
+            persona_*_output.log
+            analytics/test_analytics.db*
+          retention-days: 30
+
+      - name: Generate workflow summary
+        if: always()
+        run: |
+          echo "## 🎭 Persona Testing Analysis Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Persona(s) | ${{ inputs.persona }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Preset | ${{ inputs.preset }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Chunks | ${{ steps.config.outputs.chunks }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Puzzles/Chunk | ${{ steps.config.outputs.puzzles }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Total Puzzles | $((${{ steps.config.outputs.chunks }} * ${{ steps.config.outputs.puzzles }})) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Session ID | ${{ steps.config.outputs.session_id }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Check test execution status
+          if [[ -f "persona_test_output.log" ]]; then
+            if grep -q "ANALYSIS COMPLETE" persona_test_output.log; then
+              echo "### ✅ Test Status: COMPLETED" >> $GITHUB_STEP_SUMMARY
+
+              # Extract performance metrics if available
+              if grep -q "Final Accuracy" persona_test_output.log; then
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "### 📊 Key Performance Metrics" >> $GITHUB_STEP_SUMMARY
+                grep "Final Accuracy\|Final Skill Level\|Total Progression\|Adaptation Speed" persona_test_output.log | head -4 | while read line; do
+                  echo "- $line" >> $GITHUB_STEP_SUMMARY
+                done
+              fi
+
+              # Check for constraint violations
+              if grep -q "CONSTRAINT VIOLATIONS DETECTED" persona_test_output.log; then
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "### ⚠️ Age Constraint Violations Detected" >> $GITHUB_STEP_SUMMARY
+                echo "Hard puzzles were served to age-restricted personas" >> $GITHUB_STEP_SUMMARY
+              elif grep -q "CONSTRAINT SATISFIED" persona_test_output.log; then
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "### ✅ Age Constraints Satisfied" >> $GITHUB_STEP_SUMMARY
+                echo "All puzzles were appropriate for the persona's age group" >> $GITHUB_STEP_SUMMARY
+              fi
+            else
+              echo "### ❌ Test Status: FAILED OR INCOMPLETE" >> $GITHUB_STEP_SUMMARY
+              echo "Test may have timed out or encountered errors" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### ❌ Test Status: NO OUTPUT GENERATED" >> $GITHUB_STEP_SUMMARY
+            echo "Test execution failed early or encountered critical errors" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Add chunk-by-chunk distribution if analytics database exists
+          if [[ -f "analytics/test_analytics.db" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 📊 Chunk-by-Chunk Distribution" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # Add chunk progression table
+            echo "| Chunk | Puzzles | Accuracy | Avg Difficulty |" >> $GITHUB_STEP_SUMMARY
+            echo "|-------|---------|----------|----------------|" >> $GITHUB_STEP_SUMMARY
+
+            # Generate chunk data and format as markdown table
+            sqlite3 analytics/test_analytics.db "SELECT '| ' || chunk_number || ' | ' || COUNT(*) || ' | ' || printf('%.1f%%', AVG(CASE WHEN success = 1 THEN 100.0 ELSE 0.0 END)) || ' | ' || printf('%.2f', AVG(difficulty)) || ' |' FROM puzzle_analytics GROUP BY chunk_number ORDER BY chunk_number;" >> $GITHUB_STEP_SUMMARY
+
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 🧩 Puzzle Type Distribution" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # Add puzzle type breakdown table
+            echo "| Puzzle Type | Count | Success Rate | Avg Difficulty |" >> $GITHUB_STEP_SUMMARY
+            echo "|-------------|-------|--------------|----------------|" >> $GITHUB_STEP_SUMMARY
+
+            # Generate puzzle type data and format as markdown table
+            sqlite3 analytics/test_analytics.db "SELECT '| ' || puzzle_type || ' | ' || COUNT(*) || ' | ' || printf('%.1f%%', AVG(CASE WHEN success = 1 THEN 100.0 ELSE 0.0 END)) || ' | ' || printf('%.2f', AVG(difficulty)) || ' |' FROM puzzle_analytics GROUP BY puzzle_type ORDER BY COUNT(*) DESC;" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔧 **Generated by**: \`persona-testing.yml\` workflow" >> $GITHUB_STEP_SUMMARY

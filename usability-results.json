@@ -1,0 +1,81 @@
+{
+  "success": true,
+  "puzzlesSeen": 18,
+  "puzzleTypes": [
+    "pattern",
+    "numberSeries"
+  ],
+  "screenshots": [
+    {
+      "name": "1-game-loaded",
+      "description": "Game loaded successfully in 4726ms",
+      "filename": "screenshots/pr-simplified-test/2025-09-25T00-02-15/test-1-game-loaded.jpg"
+    },
+    {
+      "name": "2-power-surge-detected",
+      "description": "Power surge timer system detected",
+      "filename": "screenshots/pr-simplified-test/2025-09-25T00-02-15/test-2-power-surge-detected.jpg"
+    },
+    {
+      "name": "3-first-puzzle",
+      "description": "First puzzle successfully loaded",
+      "filename": "screenshots/pr-simplified-test/2025-09-25T00-02-15/test-3-first-puzzle.jpg"
+    },
+    {
+      "name": "4-remove-two-used-1",
+      "description": "Remove two power-up activated (1/10)",
+      "filename": "screenshots/pr-simplified-test/2025-09-25T00-02-16/test-4-remove-two-used-1.jpg"
+    },
+    {
+      "name": "5-skip-used-1",
+      "description": "Skip button used to advance puzzle",
+      "filename": "screenshots/pr-simplified-test/2025-09-25T00-02-18/test-5-skip-used-1.jpg"
+    },
+    {
+      "name": "4-remove-two-used-2",
+      "description": "Remove two power-up activated (2/10)",
+      "filename": "screenshots/pr-simplified-test/2025-09-25T00-02-21/test-4-remove-two-used-2.jpg"
+    },
+    {
+      "name": "5-skip-used-2",
+      "description": "Skip button used to advance puzzle",
+      "filename": "screenshots/pr-simplified-test/2025-09-25T00-02-23/test-5-skip-used-2.jpg"
+    },
+    {
+      "name": "4-remove-two-used-3",
+      "description": "Remove two power-up activated (3/10)",
+      "filename": "screenshots/pr-simplified-test/2025-09-25T00-02-26/test-4-remove-two-used-3.jpg"
+    },
+    {
+      "name": "5-skip-used-3",
+      "description": "Skip button used to advance puzzle",
+      "filename": "screenshots/pr-simplified-test/2025-09-25T00-02-28/test-5-skip-used-3.jpg"
+    },
+    {
+      "name": "11-test-complete",
+      "description": "Test completed - final game state",
+      "filename": "screenshots/pr-simplified-test/2025-09-25T00-03-01/test-11-test-complete.jpg"
+    }
+  ],
+  "errors": [],
+  "performance": {
+    "loadTime": 4726
+  },
+  "accessibility": {
+    "buttonCount": 3,
+    "hasHeadings": false,
+    "hasAriaLabels": true,
+    "hasInteractiveElements": true
+  },
+  "validationResults": {
+    "powerSurgeWorking": true,
+    "correctAnswerFeedback": false,
+    "wrongAnswerFeedback": false,
+    "shareScreenWorking": false,
+    "powerUpButtonsWorking": true,
+    "scoreFlashing": false,
+    "gameLoadsSuccessfully": true,
+    "puzzleInteractionWorks": true
+  },
+  "validationSuccessRate": 50
+}

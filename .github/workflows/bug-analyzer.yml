@@ -1,0 +1,170 @@
+name: 🐛 Bug Analyzer - AI-Powered Testing Recommendations
+
+on:
+  # Scheduled run - weekly on Mondays at 1 AM PST
+  schedule:
+    - cron: '0 9 * * 1'  # 1 AM PST every Monday = 09:00 UTC on Mondays
+
+  # Manual trigger with configurable options
+  workflow_dispatch:
+    inputs:
+      days_back:
+        description: 'Days back to analyze bugs'
+        required: false
+        default: '7'
+        type: string
+      dry_run:
+        description: 'Dry run mode - do not create actual issues'
+        required: false
+        default: false
+        type: boolean
+      enable_ai:
+        description: 'Enable AI-powered analysis'
+        required: false
+        default: true
+        type: boolean
+      verbose:
+        description: 'Enable verbose logging'
+        required: false
+        default: true
+        type: boolean
+
+  # Allow CLI triggering
+  repository_dispatch:
+    types: [weekly-bug-analysis]
+
+  # Trigger when new bug issues are created or labeled
+  issues:
+    types: [opened, labeled]
+
+  # Explicitly disable push triggers
+  push:
+    branches-ignore:
+      - '**'
+
+env:
+  GITHUB_TOKEN: ${{ github.token }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+jobs:
+  analyze-bugs:
+    name: Analyze Bugs & Generate AI Recommendations
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch' || github.event_name == 'issues'
+    permissions:
+      contents: read
+      issues: write
+      repository-projects: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm install --save-dev @octokit/rest
+
+      - name: Set parameters
+        id: params
+        run: |
+          DAYS_BACK="${{ inputs.days_back || '7' }}"
+          DRY_RUN="${{ inputs.dry_run || 'false' }}"
+          ENABLE_AI="${{ inputs.enable_ai || 'true' }}"
+          VERBOSE="${{ inputs.verbose || 'true' }}"
+
+          echo "days_back=$DAYS_BACK" >> $GITHUB_OUTPUT
+          echo "dry_run=$DRY_RUN" >> $GITHUB_OUTPUT
+          echo "enable_ai=$ENABLE_AI" >> $GITHUB_OUTPUT
+          echo "verbose=$VERBOSE" >> $GITHUB_OUTPUT
+
+          echo "🔍 Bug Analysis Parameters:"
+          echo "  Days back: $DAYS_BACK"
+          echo "  Dry run: $DRY_RUN"
+          echo "  Enable AI: $ENABLE_AI"
+          echo "  Verbose: $VERBOSE"
+
+      - name: Create logs directory
+        run: mkdir -p logs
+
+      - name: Run bug analysis
+        id: analysis
+        run: |
+          echo "🔍 Starting bug analysis..."
+
+          # Build command arguments
+          ANALYSIS_ARGS="--days=${{ steps.params.outputs.days_back }}"
+
+          if [ "${{ steps.params.outputs.dry_run }}" = "true" ]; then
+            ANALYSIS_ARGS="$ANALYSIS_ARGS --dry-run"
+          fi
+
+          if [ "${{ steps.params.outputs.enable_ai }}" = "false" ]; then
+            ANALYSIS_ARGS="$ANALYSIS_ARGS --no-ai"
+          fi
+
+          if [ "${{ steps.params.outputs.verbose }}" = "true" ]; then
+            ANALYSIS_ARGS="$ANALYSIS_ARGS --verbose"
+          fi
+
+          # Run the bug analysis script
+          node scripts/workflows/bug-analysis/analyze-bugs.js $ANALYSIS_ARGS 2>&1 | tee analysis_output.txt
+
+          # Extract results from the report file
+          if [ -f "bug-analysis-report.json" ]; then
+            TOTAL_ISSUES=$(node -e "const report = JSON.parse(require('fs').readFileSync('bug-analysis-report.json', 'utf8')); console.log(report.summary.totalIssues || 0);")
+            RECOMMENDATIONS_GENERATED=$(node -e "const report = JSON.parse(require('fs').readFileSync('bug-analysis-report.json', 'utf8')); console.log(report.recommendations.total || 0);")
+            RECOMMENDATIONS_CREATED=$(node -e "const report = JSON.parse(require('fs').readFileSync('bug-analysis-report.json', 'utf8')); console.log(report.createdRecommendations ? report.createdRecommendations.length : 0);")
+            AI_ANALYSIS_ENABLED=$(node -e "const report = JSON.parse(require('fs').readFileSync('bug-analysis-report.json', 'utf8')); console.log(report.summary.aiAnalysisEnabled || false);")
+
+            echo "total_issues=$TOTAL_ISSUES" >> $GITHUB_OUTPUT
+            echo "recommendations_generated=$RECOMMENDATIONS_GENERATED" >> $GITHUB_OUTPUT
+            echo "recommendations_created=$RECOMMENDATIONS_CREATED" >> $GITHUB_OUTPUT
+            echo "ai_analysis_enabled=$AI_ANALYSIS_ENABLED" >> $GITHUB_OUTPUT
+
+            echo "📊 Analysis Results:"
+            echo "  Bug issues found: $TOTAL_ISSUES"
+            echo "  Recommendations generated: $RECOMMENDATIONS_GENERATED"
+            echo "  Issues created: $RECOMMENDATIONS_CREATED"
+            echo "  AI analysis: $AI_ANALYSIS_ENABLED"
+          else
+            echo "total_issues=0" >> $GITHUB_OUTPUT
+            echo "recommendations_generated=0" >> $GITHUB_OUTPUT
+            echo "recommendations_created=0" >> $GITHUB_OUTPUT
+            echo "ai_analysis_enabled=false" >> $GITHUB_OUTPUT
+            echo "⚠️ No analysis report generated"
+          fi
+
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## Bug Analysis Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Analysis Period:** Last ${{ steps.params.outputs.days_back }} days" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 🐛 Bug Analysis Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Bug issues analyzed:** ${{ steps.analysis.outputs.total_issues }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **AI analysis:** ${{ steps.analysis.outputs.ai_analysis_enabled }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Recommendations generated:** ${{ steps.analysis.outputs.recommendations_generated }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Issues created:** ${{ steps.analysis.outputs.recommendations_created }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dry run mode:** ${{ steps.params.outputs.dry_run }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Add status indicator
+          if [ "${{ steps.analysis.outputs.total_issues }}" -eq 0 ]; then
+            echo "✅ **Status:** No bugs found in analysis period" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ steps.analysis.outputs.recommendations_created }}" -gt 0 ]; then
+            echo "🧪 **Status:** Created ${{ steps.analysis.outputs.recommendations_created }} testing improvement recommendations" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "📊 **Status:** Analysis completed, no new recommendations needed" >> $GITHUB_STEP_SUMMARY
+          fi

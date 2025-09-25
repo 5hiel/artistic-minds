@@ -1,0 +1,171 @@
+name: AI - Code Review on PR
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+jobs:
+  auto-review:
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Comprehensive PR Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          track_progress: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            You are conducting a comprehensive code review for the Gifted Minds React Native/Expo app PR.
+            
+            Perform a comprehensive code review with the following focus areas:
+
+            1. **Code Quality & React Native Best Practices**
+               - React Native and Expo best practices
+               - TypeScript usage and type safety
+               - Code structure and maintainability
+               - Performance considerations for mobile devices
+               - Cross-platform compatibility (iOS/Android/Web)
+               - Clean code principles and readability
+
+            2. **Game Logic & Functionality** (if applicable)
+               - Puzzle generation correctness and algorithms
+               - Scoring system integrity and edge cases
+               - Game state management patterns
+               - Hook usage and state management
+               - Component architecture and reusability
+
+            3. **Security & Safety**
+               - Security best practices (especially automation scripts)
+               - Proper credential management
+               - Input validation and error handling
+               - No hardcoded secrets or sensitive data
+               - Authentication/authorization logic
+
+            4. **Performance & Optimization**
+               - Identify potential performance bottlenecks
+               - Memory leaks or resource management issues
+               - Efficient state updates and re-renders
+               - Bundle size impact considerations
+               - Mobile-specific performance optimizations
+
+            5. **Testing & Documentation**
+               - Test coverage for new functionality
+               - Test quality and edge case coverage
+               - Documentation updates (README.md, CLAUDE.md)
+               - Inline code comments for complex logic
+               - API documentation accuracy
+            
+            **REVIEW APPROACH:**
+            - Use **inline comments** for specific code issues, suggestions, and improvements
+            - Use **top-level summary comment** for overall assessment and general observations
+            - Provide **constructive feedback** with specific examples and solutions
+            
+            **SUMMARY COMMENT STRUCTURE:**
+            ```markdown
+            ## 🤖 Comprehensive Code Review Summary
+            
+            **Overall Assessment:** ✅ APPROVED / ❌ NEEDS CHANGES / ⚠️ APPROVED WITH COMMENTS
+            
+            ### 📊 Review Statistics
+            - **Files Reviewed:** X files
+            - **Inline Comments:** X specific issues addressed
+            - **Critical Issues:** X found
+            - **Suggestions:** X improvements recommended
+            
+            ### 🎯 Key Highlights
+            
+            #### ✅ Strengths
+            - [Positive aspects and good practices]
+            - [Architectural decisions that work well]
+            
+            #### ⚠️ Areas for Improvement
+            - [High-level concerns or patterns]
+            - [Architectural or design considerations]
+            
+            #### 💡 Recommendations
+            - [Strategic suggestions for the codebase]
+            - [Performance or maintainability improvements]
+            
+            ### 🏁 Final Recommendation
+            **[APPROVE/REQUEST_CHANGES/COMMENT]:** [Brief explanation of decision]
+            
+            ---
+            *Automated review by Claude AI • Detailed feedback in inline comments below*
+            ```
+            
+            **STEP 3: Make approval decision**
+            Based on your findings:
+            
+            **✅ APPROVE if:**
+            - No critical security issues
+            - No breaking changes
+            - Code follows project patterns
+            - Minor issues are acceptable for merge
+            
+            **❌ REQUEST CHANGES if:**
+            - Critical security vulnerabilities found
+            - Breaking changes without proper handling
+            - Major performance issues
+            - Code quality significantly below standards
+            
+            **⚠️ COMMENT (neutral) if:**
+            - Has suggestions but no blocking issues
+            - Minor improvements recommended
+            - Unclear about impact of changes
+            
+            **EXECUTION WORKFLOW:**
+            
+            1. **Analyze the PR**: Get PR information and understand the changes
+            
+            2. **Provide Detailed Feedback**: 
+               - Create **inline comments** for specific code issues, bugs, or improvements
+               - Focus on actionable feedback with specific line numbers and suggestions
+               - Include code examples where helpful
+            
+            3. **Post Summary Comment**:
+               - Use the structured summary format above
+               - Highlight overall patterns and architectural considerations
+               - Provide high-level recommendations
+            
+            4. **Submit Official Review**:
+               - APPROVE: Ready to merge, minor/no issues found
+               - REQUEST_CHANGES: Critical issues that block merging
+               - COMMENT: Suggestions provided but no blocking issues
+            
+            **CRITICAL EXECUTION REQUIREMENTS:**
+            - You MUST actually execute the GitHub API calls using the available tools
+            - Create inline comments for specific issues before the summary
+            - Post the summary comment with the structured format
+            - Submit the final review decision
+            - Do NOT just generate text - actually interact with the PR!
+          
+          claude_args: |
+            --allowedTools "mcp__github__get_pull_request,mcp__github__get_pull_request_diff,mcp__github__create_pull_request_comment,mcp__github__create_pull_request_review,mcp__github__create_pull_request_review_comment,Read"
+
+      - name: Post Review Started Comment
+        uses: actions/github-script@v6
+        with:
+          script: |
+            // Post comment to indicate review is starting
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '🤖 **Automated Code Review Started**\n\n' +
+                    'Claude is analyzing code quality, security, and best practices.\n\n' +
+                    '*Review results will be posted when complete.*\n\n' +
+                    '**Note**: Usability testing runs automatically on PRs via separate workflow.'
+            });
